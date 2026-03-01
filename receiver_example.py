@@ -148,12 +148,14 @@ def receive_images(conn):
                     cv2.putText(dashboard, "Masked Surface", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
                     
                     # วางภาพครอป 6 ทางขวา
-                    for i in range(6):
+                    for i in range(1, 7):
                         c_id = f"crop_{i}"
                         if c_id in received_frames:
                             crop_img = received_frames[c_id]
-                            r = i // 2
-                            c = i % 2
+                            # แถวและคอลัมน์ (0, 1, 2)
+                            idx = i - 1
+                            r = idx // 2
+                            c = idx % 2
                             y = r * crop_h
                             x = target_main_w + (c * crop_w)
                             

@@ -1,22 +1,22 @@
 {
     "tcp": {
-        "ip": "10.10.10.199",
+        "ip": "iriv.local",
         "port": 8080
     },
     "mqtt": {
-        "broker": "10.10.10.199",
+        "broker": "iriv.local",
         "port": 1883,
         "username": "admin",
         "password": "admin123",
-        "topic_cmd": "camera/command",
-        "topic_status": "camera0/status"
+        "topic_cmd": "wf51/w/command",
+        "topic_status": "wf51/status"
     },
     "camera": {
         "id": 0,
         "default_width": 2304,
         "default_height": 1296,
         "jpeg_quality": 90,
-        "continuous_stream": false,
+        "continuous_stream": true,
         "stream_interval": 1.0,
         "loop_delay": 0.05
     },
@@ -24,7 +24,11 @@
         "enable_alignment": true,
         "enable_shadow_removal": true,
         "enable_grayscale": true,
-        "enable_clahe": true,
+        "enable_clahe": false,
         "enable_box_cropping": true
+    },
+    "camera_params": {
+        "ExposureTime": 29000,
+        "AnalogueGain": 3.4
     }
 }

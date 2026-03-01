@@ -1,0 +1,10 @@
+# Debug output images
+sender_pi5/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# OS
+.DS_Store

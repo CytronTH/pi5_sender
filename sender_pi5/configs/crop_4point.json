@@ -2,51 +2,49 @@
     "calibration_marks": [
         {
             "id": "mark1",
-            "x": 1517,
-            "y": 1054,
+            "x": 1177,
+            "y": 850,
             "template": "mark1_template.jpg"
         },
         {
             "id": "mark2",
-            "x": 2794,
-            "y": 984,
+            "x": 2721,
+            "y": 795,
             "template": "mark2_template.jpg"
         },
         {
             "id": "mark3",
-            "x": 1728,
-            "y": 1812,
+            "x": 927,
+            "y": 1767,
             "template": "mark3_template.jpg"
         },
         {
             "id": "mark4",
-            "x": 3063,
-            "y": 1417,
+            "x": 3042,
+            "y": 1326,
             "template": "mark4_template.jpg"
         }
     ],
     "calibration_corners": [
         {
             "point": "TL",
-            "x": 1091,
-            "y": 819
+            "x": 641,
+            "y": 528
         },
         {
             "point": "TR",
-            "x": 3220,
-            "y": 690
+            "x": 3265,
+            "y": 430
         },
         {
             "point": "BR",
-            "x": 3324,
-            "y": 2245
+            "x": 3298,
+            "y": 2300
         },
         {
             "point": "BL",
-            "x": 1104,
+            "x": 725,
             "y": 2306
         }
-    ],
-    "padding_x": -20,
-    "padding_y": -10
+    ]
 }

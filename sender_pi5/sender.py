@@ -138,6 +138,15 @@ def get_cpu_temperature():
     except Exception:
         return 0.0
 
+def save_config():
+    """Saves the current config dictionary back to the JSON file."""
+    try:
+        with open(args.config, 'w') as f:
+            json.dump(config, f, indent=4)
+        print(f"INFO: Saved updated configuration to {args.config}")
+    except Exception as e:
+        print(f"ERROR: Failed to save config to {args.config}: {e}")
+
 last_cpu_idle = 0
 last_cpu_total = 0
 
@@ -436,15 +445,18 @@ def pre_process_worker():
                 cv2.imwrite(os.path.join(debug_out_dir, f"preproc_{base_name}_masked_surface.jpg"), masked_surface)
             
             # Send the main masked surface first
+            total_to_send = 1 + len(images_to_send)
+            print(f"INFO: Pre-processing complete. {total_to_send} images prepared for sending (1 surface + {len(images_to_send)} crops).")
             send_image(masked_surface, image_id="masked_surface")
             
             if enable_crop:
                 # Followed by all the crops (Should be 6 crops based on user config)
                 # The receiver will get id="crop_0", "crop_1", etc.
                 for idx, crop in enumerate(images_to_send):
+                    crop_id = f"crop_{idx + 1}"
                     if args.debug_align:
-                        cv2.imwrite(os.path.join(debug_out_dir, f"preproc_{base_name}_crop_{idx}.jpg"), crop)
-                    send_image(crop, image_id=f"crop_{idx}")
+                        cv2.imwrite(os.path.join(debug_out_dir, f"preproc_{base_name}_{crop_id}.jpg"), crop)
+                    send_image(crop, image_id=crop_id)
                 
             image_queue.task_done()
             
@@ -466,7 +478,7 @@ def on_mqtt_connect(client, userdata, flags, rc):
     print(f"INFO: Subscribed to MQTT topic: {MQTT_TOPIC_CMD}")
 
 def on_mqtt_message(client, userdata, msg):
-    global capture_triggered, current_width, current_height, picam2
+    global capture_triggered, current_width, current_height, picam2, config
     try:
         payload = json.loads(msg.payload.decode())
         print(f"MQTT CMD Received: {payload}")
@@ -475,24 +487,45 @@ def on_mqtt_message(client, userdata, msg):
             return
 
         controls = {}
-        
+        config_updated = False
+        if "camera_params" not in config:
+            config["camera_params"] = {}
+            
         # Map JSON payload to Picamera2 controls
         if 'ExposureTime' in payload:
             controls['ExposureTime'] = int(payload['ExposureTime'])
+            config["camera_params"]['ExposureTime'] = controls['ExposureTime']
+            config_updated = True
         if 'AnalogueGain' in payload:
             controls['AnalogueGain'] = float(payload['AnalogueGain'])
+            config["camera_params"]['AnalogueGain'] = controls['AnalogueGain']
+            config_updated = True
         if 'ColourGains' in payload:
             # Format expected: [red_gain, blue_gain]
             gains = payload['ColourGains']
             if isinstance(gains, list) and len(gains) == 2:
                 controls['ColourGains'] = (float(gains[0]), float(gains[1]))
+                config["camera_params"]['ColourGains'] = gains
+                config_updated = True
         if 'LensPosition' in payload:
             controls['LensPosition'] = float(payload['LensPosition'])
+            config["camera_params"]['LensPosition'] = controls['LensPosition']
             controls['AfMode'] = 0 # 0 sets AfModeEnum.Manual usually required for LensPosition
+            config_updated = True
+            
+        # Additional settings like AfMode
+        if 'AfMode' in payload:
+            controls['AfMode'] = int(payload['AfMode'])
+            config["camera_params"]['AfMode'] = controls['AfMode']
+            config_updated = True
             
         if controls:
             picam2.set_controls(controls)
             print(f"INFO: Applied camera controls: {controls}")
+            
+        if config_updated:
+            # Move save_config to a background thread to prevent blocking MQTT loop
+            threading.Thread(target=save_config, daemon=True).start()
 
         # Handle resolution changes
         if 'resolution' in payload:
@@ -540,12 +573,34 @@ def main():
             picam2 = MockCamera(args.mock_dir)
         else:
             picam2 = Picamera2(camera_num=CAMERA_ID)
-            config = picam2.create_preview_configuration(
+            cam_config = picam2.create_preview_configuration(
                 main={'format': 'RGB888', 'size': (current_width, current_height)}
             )
-            picam2.configure(config)
+            picam2.configure(cam_config)
             picam2.start()
             print(f"INFO: Camera started successfully at {current_width}x{current_height}")
+            
+            # Apply saved parameters
+            saved_params = config.get("camera_params", {})
+            if saved_params:
+                initial_controls = {}
+                if 'ExposureTime' in saved_params:
+                    initial_controls['ExposureTime'] = int(saved_params['ExposureTime'])
+                if 'AnalogueGain' in saved_params:
+                    initial_controls['AnalogueGain'] = float(saved_params['AnalogueGain'])
+                if 'ColourGains' in saved_params:
+                    gains = saved_params['ColourGains']
+                    if isinstance(gains, list) and len(gains) == 2:
+                         initial_controls['ColourGains'] = (float(gains[0]), float(gains[1]))
+                if 'LensPosition' in saved_params:
+                    initial_controls['LensPosition'] = float(saved_params['LensPosition'])
+                    initial_controls['AfMode'] = 0
+                if 'AfMode' in saved_params:
+                    initial_controls['AfMode'] = int(saved_params['AfMode'])
+                    
+                if initial_controls:
+                    picam2.set_controls(initial_controls)
+                    print(f"INFO: Applied saved camera parameters from config: {initial_controls}")
     except Exception as e:
         print(f"CRITICAL: Failed to initialize camera: {e}")
         os._exit(1) # Exit forcefully with an error code to trigger Systemd Restart

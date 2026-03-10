@@ -4,6 +4,7 @@ import json
 import threading
 import subprocess
 import cv2
+import socket
 from flask import Flask, render_template, Response, jsonify, request, send_file
 from picamera2 import Picamera2
 
@@ -505,9 +506,10 @@ def favicon():
 @app.route('/')
 def index():
     """Render the main WebUI."""
+    hostname = socket.gethostname()
     # We pass the dictionary of modes to the template although JS will fetch it anyway
     modes = {k: v["mode"] for k, v in CAMERAS.items()}
-    return render_template('index.html', modes=modes)
+    return render_template('index.html', modes=modes, hostname=hostname)
 
 @app.route('/video_feed/<cam_id>')
 def video_feed(cam_id):

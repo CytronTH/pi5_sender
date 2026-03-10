@@ -42,8 +42,8 @@ except FileNotFoundError:
         "mqtt": {
             "broker": "wfmain.local",
             "port": 1883,
-            "topic_cmd": "camera/command",
-            "topic_status": "camera/status"
+            "topic_cmd": f"{socket.gethostname()}/w/command",
+            "topic_status": f"{socket.gethostname()}/w/status"
         },
         "camera": {
             "id": 0 if "cam0" in args.config else 1,

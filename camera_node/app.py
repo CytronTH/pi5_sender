@@ -61,9 +61,9 @@ def start_picamera(cam_id):
             cam_data["picam2"] = Picamera2(camera_num=cam_data["device_id"])
             
         width, height, controls = get_camera_settings(cam_id)
-        # Use 1280x720 for preview to save encoding CPU
+        # Use configured dimensions for preview
         cam_config = cam_data["picam2"].create_preview_configuration(
-            main={'format': 'RGB888', 'size': (1280, 720)}
+            main={'format': 'RGB888', 'size': (width, height)}
         )
         cam_data["picam2"].configure(cam_config)
         cam_data["picam2"].start()
@@ -157,6 +157,20 @@ def generate_frames(cam_id):
                 # Capture frame from the camera
                 frame = cam_data["picam2"].capture_array()
                 
+                # Add resolution label to the bottom right corner
+                h, w = frame.shape[:2]
+                text = f"{w}x{h}"
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.5 if w < 1000 else 1.0
+                thickness = 1 if w < 1000 else 2
+                text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+                text_w, text_h = text_size
+                org = (w - text_w - 10, h - 10)
+                
+                # Draw black background rectangle for better visibility
+                cv2.rectangle(frame, (org[0] - 5, org[1] - text_h - 5), (w, h), (0, 0, 0), -1)
+                cv2.putText(frame, text, org, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
                 # Encode to JPEG
                 ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                 if not ret:

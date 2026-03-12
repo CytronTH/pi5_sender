@@ -215,7 +215,7 @@ def save_config(cam_id):
         if not new_config:
             return jsonify({"error": "No JSON payload provided"}), 400
             
-        required_sections = ["tcp", "mqtt", "camera", "preprocessing"]
+        required_sections = ["tcp", "mqtt", "camera", "preprocessing", "sftp"]
         for section in required_sections:
             if section not in new_config:
                 new_config[section] = {}

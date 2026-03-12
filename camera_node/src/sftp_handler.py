@@ -1,0 +1,77 @@
+import paramiko
+import os
+import sys
+
+class SFTPHandler:
+    def __init__(self, config):
+        """
+        Initializes the SFTP Handler with a specific config dictionary.
+        Expected keys in config: 'enabled', 'host', 'port', 'username', 'password', 'remote_path', 'batch_size'
+        """
+        self.config = config or {}
+
+    def upload_files(self, file_paths):
+        if not self.config:
+            print("SFTP configuration missing. Skipping upload.", file=sys.stderr)
+            return False
+
+        if not self.config.get('enabled', False):
+            print("SFTP Auto-Transfer is disabled. Skipping upload.", file=sys.stderr)
+            return False
+
+        host = self.config.get('host')
+        port = int(self.config.get('port', 22))
+        username = self.config.get('username')
+        password = self.config.get('password')
+        remote_base_path = self.config.get('remote_path', '.')
+
+        if not host or not username:
+             print("SFTP Host or Username missing in config.", file=sys.stderr)
+             return False
+
+        transport = None
+        sftp = None
+        success = True
+        uploaded_files = []
+
+        try:
+            print(f"Connecting to SFTP server {host}:{port}...", file=sys.stderr)
+            transport = paramiko.Transport((host, port))
+            transport.connect(username=username, password=password)
+            sftp = paramiko.SFTPClient.from_transport(transport)
+
+            # Ensure remote directory exists (basic check)
+            try:
+                sftp.chdir(remote_base_path)
+            except IOError:
+                print(f"Remote path {remote_base_path} not found. Attempting to create...", file=sys.stderr)
+                try:
+                    sftp.mkdir(remote_base_path)
+                    sftp.chdir(remote_base_path)
+                except IOError as e:
+                     print(f"Failed to create/change to remote dir: {e}", file=sys.stderr)
+            
+            for local_path in file_paths:
+                if not os.path.exists(local_path):
+                    print(f"File not found: {local_path}", file=sys.stderr)
+                    continue
+                
+                filename = os.path.basename(local_path)
+                print(f"Uploading {filename}...", file=sys.stderr)
+                try:
+                    sftp.put(local_path, filename)
+                    print(f"Successfully uploaded {filename}. Deleting local file...", file=sys.stderr)
+                    os.remove(local_path)
+                    uploaded_files.append(local_path)
+                except Exception as e:
+                    print(f"Failed to upload {filename}: {e}", file=sys.stderr)
+                    success = False
+
+        except Exception as e:
+            print(f"SFTP connection error: {e}", file=sys.stderr)
+            success = False
+        finally:
+            if sftp: sftp.close()
+            if transport: transport.close()
+        
+        return uploaded_files

@@ -20,6 +20,7 @@ from src.image_alignment import calculate_canonical_targets, find_mark
 from src.shadow_removal import remove_shadows_divisive
 from src.grayscale_filter import cv2 as dummy_cv2
 import src.image_cropping as cwb
+from src.sftp_handler import SFTPHandler
 
 # --- Configuration Loader ---
 parser = argparse.ArgumentParser(description="Camera Sender Script")
@@ -109,6 +110,7 @@ capture_triggered = False
 capture_lock = threading.Lock()
 image_queue = Queue(maxsize=7) # Limit queue size to avoid OOM
 last_mock_image_name = None # Track the current mock image name
+pending_transfers = []
 
 # Image Processing config
 preproc_config = None
@@ -580,6 +582,39 @@ def pre_process_worker():
             print(f"CRITICAL ERROR: Unexpected Pre-processing worker failure: {e}")
             os._exit(1) # Force exit immediately if there is a fatal error in the thread
 
+def run_sftp_transfer(files_to_upload, sftp_config):
+    def _transfer():
+        print(f"INFO: Starting SFTP background transfer for {len(files_to_upload)} files...")
+        handler = SFTPHandler(sftp_config)
+        handler.upload_files(files_to_upload)
+    threading.Thread(target=_transfer, daemon=True).start()
+
+def handle_sftp_capture(frame):
+    global pending_transfers
+    sftp_config = config.get("sftp", {})
+    batch_size = int(sftp_config.get("batch_size", 10))
+    save_dir = os.path.join(base_dir, "logs", "captures")
+    os.makedirs(save_dir, exist_ok=True)
+    
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    # Add a fractional part to avoid overwriting if triggered multiple times a second
+    frac = int((time.time() % 1) * 1000)
+    filename = f"cam{CAMERA_ID}_{timestamp}_{frac:03d}.jpg"
+    filepath = os.path.join(save_dir, filename)
+    
+    # Save the frame
+    cv2.imwrite(filepath, frame)
+    print(f"INFO: Saved capture for SFTP: {filepath}")
+    
+    pending_transfers.append(filepath)
+    print(f"INFO: Pending transfers: {len(pending_transfers)}/{batch_size}")
+    
+    if len(pending_transfers) >= batch_size:
+        print(f"INFO: SFTP Batch size ({batch_size}) reached. Initiating upload...")
+        files_to_upload = list(pending_transfers)
+        pending_transfers.clear()
+        run_sftp_transfer(files_to_upload, sftp_config)
+
 def on_mqtt_connect(client, userdata, flags, rc):
     print(f"INFO: Connected to MQTT broker with result code {rc}")
     client.subscribe(MQTT_TOPIC_CMD)
@@ -701,8 +736,11 @@ def main():
             # Apply saved generic parameters
             controls = config.get("controls", {})
             if controls:
-                picam2.set_controls(controls)
-                print(f"INFO: Applied camera controls from config: {controls}")
+                try:
+                    picam2.set_controls(controls)
+                    print(f"INFO: Applied camera controls from config: {controls}")
+                except Exception as ce:
+                    print(f"WARNING: Failed to apply some camera controls: {ce}")
     except Exception as e:
         print(f"CRITICAL: Failed to initialize camera: {e}")
         os._exit(1) # Exit forcefully with an error code to trigger Systemd Restart
@@ -757,26 +795,36 @@ def main():
                 mqtt_client.publish(MQTT_TOPIC_STATUS, json.dumps(status))
                 last_status_time = current_time
 
-            # Trigger a capture either if forced via MQTT or via continuous stream interval
+            sftp_enabled = config.get("sftp", {}).get("enabled", False)
             should_stream = CONTINUOUS_STREAM and (current_time - last_capture_time >= STREAM_INTERVAL)
+            
+            # If SFTP is enabled, we only care about manual triggers (not continuous TCP streaming)
+            if sftp_enabled:
+                should_stream = False
 
             if capture_triggered or should_stream:
                 with capture_lock:
+                    is_manual = False
                     if capture_triggered:
                         print("INFO: Manual capture triggered.")
+                        is_manual = True
                         capture_triggered = False
                         
                     try:
                         frame = picam2.capture_array()
                         
-                        # Drop old frame if queue is full to maintain real-time
-                        if image_queue.full():
-                            try:
-                                image_queue.get_nowait()
-                                image_queue.task_done()
-                                print("WARNING: Dropped frame due to full queue.")
-                            except: pass
-                        image_queue.put(frame)
+                        if sftp_enabled and is_manual:
+                            handle_sftp_capture(frame)
+                        elif not sftp_enabled:
+                            # Drop old frame if queue is full to maintain real-time
+                            if image_queue.full():
+                                try:
+                                    image_queue.get_nowait()
+                                    image_queue.task_done()
+                                    print("WARNING: Dropped frame due to full queue.")
+                                except: pass
+                            image_queue.put(frame)
+                            
                         last_capture_time = time.time()
                     except Exception as e:
                         print(f"ERROR: Capture failed: {e}")

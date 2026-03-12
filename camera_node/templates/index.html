@@ -612,7 +612,7 @@
 
             <div class="controls">
                 <button class="btn btn-webui active" id="btnWebui_cam0" onclick="switchMode('cam0', 'webui')">WebUI Stream</button>
-                <button class="btn btn-tcp" id="btnTcp_cam0" onclick="switchMode('cam0', 'tcp')">TCP Sender</button>
+                <button class="btn btn-tcp" id="btnTcp_cam0" onclick="switchMode('cam0', 'tcp')">TCP/SFTP Background Node</button>
                 <button class="btn btn-settings" onclick="openSettings('cam0')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
                     ⚙️ Config
                 </button>
@@ -674,7 +674,7 @@
 
             <div class="controls">
                 <button class="btn btn-webui active" id="btnWebui_cam1" onclick="switchMode('cam1', 'webui')">WebUI Stream</button>
-                <button class="btn btn-tcp" id="btnTcp_cam1" onclick="switchMode('cam1', 'tcp')">TCP Sender</button>
+                <button class="btn btn-tcp" id="btnTcp_cam1" onclick="switchMode('cam1', 'tcp')">TCP/SFTP Background Node</button>
                 <button class="btn btn-settings" onclick="openSettings('cam1')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
                     ⚙️ Config
                 </button>
@@ -809,7 +809,7 @@
                 btnTcp.classList.add('active');
                 btnWebui.classList.remove('active');
                 statusBanner.className = 'status-banner tcp-mode';
-                statusText.innerText = "TCP Sender (Active Backend Process)";
+                statusText.innerText = "Background Node (TCP/SFTP Active)";
                 pidText.innerText = tcpPid ? `PID: ${tcpPid}` : "Running";
                 videoFeed.style.display = 'none';
                 
@@ -952,6 +952,18 @@
             html += createInputGroup('Enable Grayscale', prep.enable_grayscale || false, 'boolean', 'preprocessing', 'enable_grayscale');
             html += createInputGroup('Enable CLAHE', prep.enable_clahe || false, 'boolean', 'preprocessing', 'enable_clahe');
             html += createInputGroup('Enable Pre-crop', prep.enable_pre_crop || false, 'boolean', 'preprocessing', 'enable_pre_crop');
+            html += '</div>';
+
+            // SFTP Section
+            html += '<div class="settings-section"><h3>📁 SFTP Auto-Upload (TCP Mode)</h3>';
+            const sftp = currentConfig.sftp || {};
+            html += createInputGroup('Enable SFTP Upload', sftp.enabled || false, 'boolean', 'sftp', 'enabled');
+            html += createInputGroup('Host', sftp.host || '', 'text', 'sftp', 'host');
+            html += createInputGroup('Port', sftp.port || 22, 'number', 'sftp', 'port');
+            html += createInputGroup('Username', sftp.username || '', 'text', 'sftp', 'username');
+            html += createInputGroup('Password', sftp.password || '', 'password', 'sftp', 'password');
+            html += createInputGroup('Remote Directory', sftp.remote_path || '/home/user/captures', 'text', 'sftp', 'remote_path');
+            html += createInputGroup('Upload Batch Size (Images)', sftp.batch_size || 10, 'number', 'sftp', 'batch_size');
             html += '</div>';
 
             document.getElementById('settingsBody').innerHTML = html;

@@ -731,12 +731,17 @@
                         
                         <div id="alignOptions" style="display: none; align-items: center; gap: 1rem;">
                             <label style="color: white; font-size: 0.9rem; cursor: pointer;">
-                                <input type="radio" name="alignStep" value="marks" checked onchange="switchAlignStep('marks')"> 1. Draw 4 Marker Boxes
+                                <input type="radio" name="alignStep" value="marks" checked onchange="switchAlignStep('marks')"> <span id="optMarksText">1. Draw 4 Marker Boxes</span>
                             </label>
-                            <label style="color: white; font-size: 0.9rem; cursor: pointer;">
+                            <label id="optCornersLabel" style="color: white; font-size: 0.9rem; cursor: pointer;">
                                 <input type="radio" name="alignStep" value="corners" onchange="switchAlignStep('corners')"> 2. Click 4 True Corners
                             </label>
                         </div>
+                    </div>
+
+                    <div id="cam0PaddingOption" style="display: none; align-items: center; gap: 1rem; margin-top: 0.5rem; background: rgba(0,0,0,0.3); padding: 0.5rem 1rem; border-radius: 8px;">
+                        <label for="cam0CropPadding" style="color: white; font-weight: 500;">Crop Padding (px) from Mark:</label>
+                        <input type="number" id="cam0CropPadding" value="50" min="0" max="1000" style="width: 80px; padding: 0.3rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: white;">
                     </div>
 
                     <div id="calibInstruction" style="background: rgba(0,0,0,0.3); padding: 0.75rem 1rem; border-radius: 8px; border-left: 4px solid var(--warning-color); font-size: 0.95rem; color: white;">
@@ -1251,6 +1256,20 @@
             calibCamId = cam_id;
             document.getElementById('calibTitle').innerText = `🎯 Calibration Studio (${cam_id.toUpperCase()})`;
             calibModal.style.display = 'flex';
+            
+            // Adjust UI based on cam_id
+            if (cam_id === 'cam0') {
+                document.getElementById('optMarksText').innerText = "1. Draw 1 Marker Box";
+                document.getElementById('optCornersLabel').style.display = 'none'; // No corners for cam0
+                document.getElementById('cam0PaddingOption').style.display = 'flex';
+            } else {
+                document.getElementById('optMarksText').innerText = "1. Draw 4 Marker Boxes";
+                document.getElementById('optCornersLabel').style.display = 'inline';
+                document.getElementById('cam0PaddingOption').style.display = 'none';
+            }
+            // Reset to marks step
+            document.querySelector('input[name="alignStep"][value="marks"]').checked = true;
+            
             switchCalibTab('align');
             await captureCalibrationImage();
         }
@@ -1277,10 +1296,16 @@
             if (calibMode !== 'align') return;
             alignStep = step;
             const instr = document.getElementById('calibInstruction');
-            if (step === 'marks') {
-                instr.innerText = "Step 1: Click and drag to draw exactly 4 marker boxes around the physical tracking symbols.";
+            if (calibCamId === 'cam0') {
+                if (step === 'marks') {
+                    instr.innerText = "Step 1: Click and drag to draw EXACTLY 1 tracking mark for Template Matching.";
+                }
             } else {
-                instr.innerText = "Step 2: Click exactly 4 corner points indicating the TRUE boundary of your tracking area.";
+                if (step === 'marks') {
+                    instr.innerText = "Step 1: Click and drag to draw exactly 4 marker boxes around the physical tracking symbols.";
+                } else {
+                    instr.innerText = "Step 2: Click exactly 4 corner points indicating the TRUE boundary of your tracking area.";
+                }
             }
         }
 
@@ -1415,13 +1440,14 @@
             
             if (calibMode === 'align') {
                 if (alignStep === 'marks') {
-                    if (alignMarks.length < 4) {
+                    const maxMarks = calibCamId === 'cam0' ? 1 : 4;
+                    if (alignMarks.length < maxMarks) {
                         isDrawing = true;
                         startX = pos.x;
                         startY = pos.y;
                         currentRect = { x: startX, y: startY, width: 0, height: 0 };
                     } else {
-                        alert("You already have 4 Marks. Clear or Undo to change them.");
+                        alert(`You already have ${maxMarks} Mark(s). Clear or Undo to change them.`);
                     }
                 } else {
                     // Corners are still points
@@ -1514,20 +1540,28 @@
             
             try {
                 if (calibMode === 'align') {
-                    if (alignMarks.length !== 4) {
-                        alert("You must define exactly 4 MARKS.");
-                        btn.innerText = origText;
-                        return;
-                    }
-                    if (alignCorners.length > 0 && alignCorners.length !== 4) {
-                        alert("If defining CORNERS, you must define exactly 4 CORNERS. Otherwise, clear them to use marks as corners natively.");
-                        btn.innerText = origText;
-                        return;
+                    if (calibCamId === 'cam0') {
+                        if (alignMarks.length !== 1) {
+                            alert("You must define EXACTLY 1 MARK for Camera 0.");
+                            btn.innerText = origText;
+                            return;
+                        }
+                    } else {
+                        if (alignMarks.length !== 4) {
+                            alert("You must define exactly 4 MARKS.");
+                            btn.innerText = origText;
+                            return;
+                        }
+                        if (alignCorners.length > 0 && alignCorners.length !== 4) {
+                            alert("If defining CORNERS, you must define exactly 4 CORNERS. Otherwise, clear them to use marks as corners natively.");
+                            btn.innerText = origText;
+                            return;
+                        }
                     }
                     
                     // If no explicit corners, use the centers of the marker boxes as corners
                     let finalCorners = alignCorners;
-                    if (alignCorners.length === 0) {
+                    if (alignCorners.length === 0 && calibCamId !== 'cam0') {
                         finalCorners = alignMarks.map(m => ({
                             x: Math.round(m.x + m.width / 2),
                             y: Math.round(m.y + m.height / 2)
@@ -1536,7 +1570,8 @@
                     
                     const payload = {
                         marks: alignMarks,
-                        corners: finalCorners
+                        corners: finalCorners,
+                        padding: parseInt(document.getElementById('cam0CropPadding').value) || 50
                     };
                     
                     const res = await fetch(`/api/calibrate/save_alignment/${calibCamId}`, {

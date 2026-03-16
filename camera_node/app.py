@@ -106,10 +106,19 @@ def stop_picamera(cam_id):
             print(f"INFO: Picamera2 ({cam_id}) stopped and camera resource released.")
 
 def start_tcp_sender(cam_id):
-    """Start the main.py script as a subprocess for a specific camera."""
+    """Start the main.py script as a subprocess or systemd service for a specific camera."""
     cam_data = CAMERAS[cam_id]
     cfg_path = cam_data["config_path"]
+    cam_num = cam_id.replace('cam', '')
     
+    # Try systemd first
+    try:
+        subprocess.run(['sudo', 'systemctl', 'start', f'camera-sender@{cam_num}.service'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"INFO: TCP Sender ({cam_id}) started via systemd.")
+        return True
+    except Exception as e:
+        print(f"Warning: systemd start failed for {cam_id}. Falling back to subprocess.")
+        
     if cam_data["tcp_process"] is None or cam_data["tcp_process"].poll() is not None:
         print(f"INFO: Starting TCP Sender Subprocess ({cam_id}): python3 main.py -c {cfg_path}")
         try:
@@ -125,9 +134,19 @@ def start_tcp_sender(cam_id):
     return True
 
 def stop_tcp_sender(cam_id):
-    """Terminate the main.py subprocess if it's running for a specific camera."""
+    """Terminate the main.py systemd service or subprocess if it's running."""
     cam_data = CAMERAS[cam_id]
-    print(f"INFO: Stopping TCP Sender Subprocess ({cam_id})...")
+    cam_num = cam_id.replace('cam', '')
+    
+    print(f"INFO: Stopping TCP Sender ({cam_id})...")
+    # Try systemd first
+    try:
+        subprocess.run(['sudo', 'systemctl', 'stop', f'camera-sender@{cam_num}.service'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"INFO: TCP Sender ({cam_id}) stopped via systemd. Waiting 2 seconds for V4L2 to fully unbind...")
+        time.sleep(2)
+    except Exception as e:
+        print(f"Warning: systemd stop failed for {cam_id}. Attempting to stop Subprocess directly.")
+        
     if cam_data["tcp_process"] is not None and cam_data["tcp_process"].poll() is None:
         try:
             cam_data["tcp_process"].terminate()
@@ -139,7 +158,7 @@ def stop_tcp_sender(cam_id):
         except Exception as e:
             print(f"Warning: Error while killing TCP Sender {cam_id}: {e}")
         finally:
-            print(f"INFO: TCP Sender ({cam_id}) stopped.")
+            print(f"INFO: TCP Sender Subprocess ({cam_id}) stopped.")
     cam_data["tcp_process"] = None
 
 # --- Camera Generator ---
@@ -431,11 +450,15 @@ def save_alignment(cam_id):
         corners = data.get("corners", []) # [{"x": 10, "y": 20}, ...]
         
         # Backward compatibility or if user skipped corners
-        if len(corners) != 4:
+        if cam_id != 'cam0' and len(corners) != 4:
             corners = marks
             
-        if len(marks) != 4:
-            return jsonify({"error": "Exactly 4 marker points are required"}), 400
+        if cam_id == 'cam0':
+            if len(marks) != 1:
+                return jsonify({"error": "Exactly 1 marker point is required for Camera 0"}), 400
+        else:
+            if len(marks) != 4:
+                return jsonify({"error": "Exactly 4 marker points are required for Camera 1"}), 400
             
         img_path = os.path.join(base_dir, "logs", f"{cam_id}_calibration_target.jpg")
         if not os.path.exists(img_path):
@@ -478,6 +501,10 @@ def save_alignment(cam_id):
             "calibration_marks": marks,
             "calibration_corners": corners
         }
+        
+        # Add padding configuration specifically for cam0
+        if cam_id == 'cam0':
+            calib_data["padding"] = data.get("padding", 50)
         
         config_file = os.path.join(base_dir, "configs", f"{cam_id}_calibration_points.json")
         with open(config_file, 'w') as f:
@@ -610,7 +637,12 @@ if __name__ == '__main__':
     for cid, cam in CAMERAS.items():
         with cam["lock"]:
             if cam["mode"] == 'webui':
+                stop_tcp_sender(cid)
+                time.sleep(1)
                 start_picamera(cid)
+            elif cam["mode"] == 'tcp':
+                stop_picamera(cid)
+                start_tcp_sender(cid)
             
     # Run the Flask app on all interfaces, port 5000
     app.run(host='0.0.0.0', port=5000, threaded=True)

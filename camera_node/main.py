@@ -159,7 +159,12 @@ def init_preprocessing():
         print("INFO: Loading Calibration Config...")
         try:
             preproc_config, preproc_templates = cwb.load_calibration(f"cam{CAMERA_ID}")
-            target_marks, output_size = calculate_canonical_targets(preproc_config)
+            
+            if len(preproc_config.get("calibration_marks", [])) > 1:
+                target_marks, output_size = calculate_canonical_targets(preproc_config)
+            else:
+                target_marks = None
+                output_size = None
             
             ref_mark_points = np.array([
                 [m.get("center_x", m["x"]), m.get("center_y", m["y"])] 
@@ -274,10 +279,10 @@ def connect_tcp():
         tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp_socket.settimeout(5.0) # Handle timeouts gracefully
         tcp_socket.connect((TCP_IP, TCP_PORT))
-        print(f"INFO: Connected to TCP server at {TCP_IP}:{TCP_PORT}")
+        print(f"INFO: Connected to TCP server at {TCP_IP}:{TCP_PORT}", flush=True)
         return True
     except socket.timeout:
-        print("ERROR: TCP Connection timed out.")
+        print("ERROR: TCP Connection timed out.", flush=True)
         tcp_socket = None
         return False
     except ConnectionRefusedError:
@@ -321,7 +326,7 @@ def send_image(frame, image_id="raw_image"):
         
         # Send all parts as a single continuous stream
         tcp_socket.sendall(header + metadata_json + data)
-        print(f"INFO: Sent {image_id}: {current_width}x{current_height} ({img_size} bytes)")
+        print(f"INFO: Sent {image_id}: {current_width}x{current_height} ({img_size} bytes)", flush=True)
         
     except (ConnectionResetError, BrokenPipeError, socket.timeout) as e:
         print(f"ERROR: TCP Send Error: {e}")
@@ -372,7 +377,7 @@ def pre_process_worker():
                 image_queue.task_done()
                 continue
                 
-            # --- 1. Alignment ---
+        # --- 1. Alignment & Cropping ---
             if enable_align:
                 img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 found_marks = []
@@ -383,7 +388,7 @@ def pre_process_worker():
                 tmpl1 = cv2.cvtColor(preproc_templates[0], cv2.COLOR_BGR2GRAY)
                 loc, score = find_mark(img_gray, tmpl1)
                 
-                if score < 0.5:
+                if score < 0.2:
                     if debug_img is not None:
                         save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", f"debug_align_fail_m1_{int(time.time()*100)}.jpg")
                         cv2.imwrite(save_path, debug_img)
@@ -398,56 +403,89 @@ def pre_process_worker():
                     cv2.circle(debug_img, (int(m1_cx), int(m1_cy)), 5, (0, 0, 255), -1)
                     cv2.putText(debug_img, "M1", (loc[0], loc[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
                 
-                ref_m1 = ref_mark_points[0]
-                valid = True
+                is_single_mark = len(ref_mark_points) == 1
                 
-                for i in range(1, 4):
-                    tmpl = cv2.cvtColor(preproc_templates[i], cv2.COLOR_BGR2GRAY)
-                    ref_m = ref_mark_points[i]
-                    dx, dy = ref_m[0] - ref_m1[0], ref_m[1] - ref_m1[1]
-                    exp_cx, exp_cy = m1_cx + dx, m1_cy + dy
+                if is_single_mark:
+                    # === SINGLE MARK CENTER CROP (Camera 0) ===
+                    padding = preproc_config.get("padding", 50)
+                    mark_w = preproc_config["calibration_marks"][0].get("width", tw)
+                    mark_h = preproc_config["calibration_marks"][0].get("height", th)
                     
-                    th_i, tw_i = tmpl.shape
-                    search_pad_x, search_pad_y = 200, 200 # พิกเซลที่บวกเพิ่มด้านละ
-                    w_box = tw_i + (search_pad_x * 2)
-                    h_box = th_i + (search_pad_y * 2)
+                    crop_w = int(mark_w + (padding * 2))
+                    crop_h = int(mark_h + (padding * 2))
                     
-                    roi_x, roi_y = int(exp_cx - w_box/2), int(exp_cy - h_box/2)
-                    roi_rect = (roi_x, roi_y, w_box, h_box)
+                    start_x = int(m1_cx - (crop_w / 2))
+                    start_y = int(m1_cy - (crop_h / 2))
+                    
+                    h_img, w_img = frame.shape[:2]
+                    start_x = max(0, start_x)
+                    start_y = max(0, start_y)
+                    end_x = min(w_img, start_x + crop_w)
+                    end_y = min(h_img, start_y + crop_h)
+                    
+                    aligned_img = frame[start_y:end_y, start_x:end_x]
+                    
+                    # Update output_size dynamically for downstream shadow/mask coordinates mapping
+                    output_size = (end_x - start_x, end_y - start_y)
                     
                     if debug_img is not None:
-                        cv2.rectangle(debug_img, (roi_x, roi_y), (roi_x + w_box, roi_y + h_box), (255, 0, 0), 2)
-                        cv2.putText(debug_img, f"ROI M{i+1}", (roi_x, roi_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-    
-                    loc_i, score_i = find_mark(img_gray, tmpl, roi_rect)
+                        cv2.rectangle(debug_img, (start_x, start_y), (end_x, end_y), (0, 255, 255), 3)
+                        base_name = last_mock_image_name if (last_mock_image_name and args.mock_dir) else f"{int(time.time()*100)}"
+                        save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", f"debug_align_success_{base_name}.jpg")
+                        cv2.imwrite(save_path, debug_img)
+                        
+                else:
+                    # === 4-MARK HOMOGRAPHY (Camera 1) ===
+                    ref_m1 = ref_mark_points[0]
+                    valid = True
                     
-                    if score_i < 0.4:
+                    for i in range(1, 4):
+                        tmpl = cv2.cvtColor(preproc_templates[i], cv2.COLOR_BGR2GRAY)
+                        ref_m = ref_mark_points[i]
+                        dx, dy = ref_m[0] - ref_m1[0], ref_m[1] - ref_m1[1]
+                        exp_cx, exp_cy = m1_cx + dx, m1_cy + dy
+                        
+                        th_i, tw_i = tmpl.shape
+                        search_pad_x, search_pad_y = 200, 200 # พิกเซลที่บวกเพิ่มด้านละ
+                        w_box = tw_i + (search_pad_x * 2)
+                        h_box = th_i + (search_pad_y * 2)
+                        
+                        roi_x, roi_y = int(exp_cx - w_box/2), int(exp_cy - h_box/2)
+                        roi_rect = (roi_x, roi_y, w_box, h_box)
+                        
                         if debug_img is not None:
-                            save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", f"debug_align_fail_m{i+1}_{int(time.time()*100)}.jpg")
-                            cv2.imwrite(save_path, debug_img)
-                        raise ValueError(f"Mark {i+1} not found. Alignment failed.")
+                            cv2.rectangle(debug_img, (roi_x, roi_y), (roi_x + w_box, roi_y + h_box), (255, 0, 0), 2)
+                            cv2.putText(debug_img, f"ROI M{i+1}", (roi_x, roi_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+        
+                        loc_i, score_i = find_mark(img_gray, tmpl, roi_rect)
                         
-                    found_cx = loc_i[0] + tw_i//2
-                    found_cy = loc_i[1] + th_i//2
-                    found_marks.append([found_cx, found_cy])
-                    
+                        if score_i < 0.4:
+                            if debug_img is not None:
+                                save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", f"debug_align_fail_m{i+1}_{int(time.time()*100)}.jpg")
+                                cv2.imwrite(save_path, debug_img)
+                            raise ValueError(f"Mark {i+1} not found. Alignment failed.")
+                            
+                        found_cx = loc_i[0] + tw_i//2
+                        found_cy = loc_i[1] + th_i//2
+                        found_marks.append([found_cx, found_cy])
+                        
+                        if debug_img is not None:
+                            cv2.rectangle(debug_img, loc_i, (loc_i[0] + tw_i, loc_i[1] + th_i), (0, 255, 0), 2)
+                            cv2.circle(debug_img, (int(found_cx), int(found_cy)), 5, (0, 0, 255), -1)
+                            cv2.putText(debug_img, f"M{i+1}", (loc_i[0], loc_i[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                            
                     if debug_img is not None:
-                        cv2.rectangle(debug_img, loc_i, (loc_i[0] + tw_i, loc_i[1] + th_i), (0, 255, 0), 2)
-                        cv2.circle(debug_img, (int(found_cx), int(found_cy)), 5, (0, 0, 255), -1)
-                        cv2.putText(debug_img, f"M{i+1}", (loc_i[0], loc_i[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                        base_name = last_mock_image_name if (last_mock_image_name and args.mock_dir) else f"{int(time.time()*100)}"
+                        save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", f"debug_align_success_{base_name}.jpg")
+                        cv2.imwrite(save_path, debug_img)
                         
-                if debug_img is not None:
-                    base_name = last_mock_image_name if (last_mock_image_name and args.mock_dir) else f"{int(time.time()*100)}"
-                    save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", f"debug_align_success_{base_name}.jpg")
-                    cv2.imwrite(save_path, debug_img)
+                    input_marks = np.array(found_marks, dtype=np.float32)
+                    H, _ = cv2.findHomography(input_marks, target_marks, cv2.RANSAC, 5.0)
                     
-                input_marks = np.array(found_marks, dtype=np.float32)
-                H, _ = cv2.findHomography(input_marks, target_marks, cv2.RANSAC, 5.0)
-                
-                if H is None:
-                    raise ValueError("Homography Matrix calculation failed.")
-                    
-                aligned_img = cv2.warpPerspective(frame, H, output_size)
+                    if H is None:
+                        raise ValueError("Homography Matrix calculation failed.")
+                        
+                    aligned_img = cv2.warpPerspective(frame, H, output_size)
             else:
                 aligned_img = frame.copy()
             
@@ -517,8 +555,8 @@ def pre_process_worker():
                     # from the mask config reference, ignoring any pre_crop shift.
                     rx = int(region["x"] + offset_x)
                     ry = int(region["y"] + offset_y)
-                    rw = int(region["w"])
-                    rh = int(region["h"])
+                    rw = int(region.get("width", region.get("w", 0)))
+                    rh = int(region.get("height", region.get("h", 0)))
                     
                     # Boundary checks
                     # Map rx, ry to inside the image safely
@@ -550,8 +588,8 @@ def pre_process_worker():
             if enable_pre_crop:
                 total_to_send += 1
                 
-            print(f"INFO: Pre-processing complete. {total_to_send} images prepared for sending.")
-            send_image(masked_surface, image_id="masked_surface")
+            print(f"INFO: Pre-processing complete. {total_to_send} images prepared for sending.", flush=True)
+            send_image(masked_surface, image_id="raw_image")
             
             if enable_pre_crop:
                 # Send the pre-cropped version before the small crops

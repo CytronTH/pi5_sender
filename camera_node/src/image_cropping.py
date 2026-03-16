@@ -66,6 +66,7 @@ def find_mark(img_gray, template, search_roi=None):
     search_roi: (x, y, w, h) to limit search. If None, searches full image.
     Returns: (max_loc, max_val) -> ((x,y), score)
     """
+    print(f"DEBUG FIND_MARK: img={img_gray.shape}, tmpl={template.shape}", flush=True)
     if search_roi:
         x, y, w, h = search_roi
         # Ensure ROI is within bounds
@@ -104,16 +105,14 @@ def main():
         return
 
     calib_marks = config["calibration_marks"]
-    calib_corners = config["calibration_corners"]
+    calib_corners = config.get("calibration_corners", [])
+    padding = config.get("padding", 50)
     
     # Extract reference points (centers of marks in calibration image)
     ref_mark_points = np.array([
         [m.get("center_x", m["x"]), m.get("center_y", m["y"])] 
         for m in calib_marks
     ], dtype=np.float32)
-    
-    # Extract reference corners (points to crop in calibration image). Corners are still strict {x,y} points.
-    ref_corner_points = np.array([[c["x"], c["y"]] for c in calib_corners], dtype=np.float32)
 
     # Output directory for crops
     output_dir = args.output
@@ -131,7 +130,14 @@ def main():
         print(f"No .jpg files found in '{image_dir}'.")
         return
 
-    print(f"Found {len(image_files)} images. Starting 4-Mark Homography Processing...")
+    is_single_mark = len(calib_marks) == 1
+    
+    if is_single_mark:
+        print(f"Found {len(image_files)} images. Starting 1-Mark Center Cropping (Padding: {padding}px)...")
+    else:
+        print(f"Found {len(image_files)} images. Starting 4-Mark Homography Processing...")
+        # Extract reference corners (points to crop in calibration image). Corners are still strict {x,y} points.
+        ref_corner_points = np.array([[c["x"], c["y"]] for c in calib_corners], dtype=np.float32)
 
     for img_file in image_files:
         img_path = os.path.join(image_dir, img_file)
@@ -142,11 +148,11 @@ def main():
         
         img_gray = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
         
-        found_marks = []
-        
         # 1. Find Mark 1 (Primary) - Full Search
-        # Template 0
         tmpl1 = cv2.cvtColor(templates[0], cv2.COLOR_BGR2GRAY)
+        
+        # We can implement a ROI search for the first mark as well in the future to speed things up,
+        # but for now we search the full image just to be safe.
         loc, score = find_mark(img_gray, tmpl1)
         
         if score < 0.5:
@@ -157,101 +163,110 @@ def main():
         h, w = tmpl1.shape
         m1_cx = loc[0] + w // 2
         m1_cy = loc[1] + h // 2
-        found_marks.append([m1_cx, m1_cy])
         
-        # 2. Find Marks 2, 3, 4 (Optimized Search)
-        # Calculate offset from Mark 1 in calibration image
-        ref_m1 = ref_mark_points[0]
-        
-        for i in range(1, 4):
-            tmpl = cv2.cvtColor(templates[i], cv2.COLOR_BGR2GRAY)
-            ref_m = ref_mark_points[i]
+        if is_single_mark:
+            # === SINGLE MARK CENTER CROP (Camera 0) ===
+            # The crop box should be: center of mark +/- (half mark width + padding)
             
-            # Expected vector from M1
-            dx = ref_m[0] - ref_m1[0]
-            dy = ref_m[1] - ref_m1[1]
+            # Using the exact same dimensions as the template Mark width for crop sizing base
+            mark_w = calib_marks[0].get("width", w)
+            mark_h = calib_marks[0].get("height", h)
             
-            # Expected position in current image (assuming roughly translation only for search)
-            # A huge rotation might break this ROI search, but usually it's fine for < 20 deg
-            exp_cx = m1_cx + dx
-            exp_cy = m1_cy + dy
+            crop_w = int(mark_w + (padding * 2))
+            crop_h = int(mark_h + (padding * 2))
             
-            # Define ROI (e.g., +/- 100 pixels)
-            search_pad = 150
-            roi_x = int(exp_cx - search_pad)
-            roi_y = int(exp_cy - search_pad)
+            # Calculate top-left based on center
+            start_x = int(m1_cx - (crop_w / 2))
+            start_y = int(m1_cy - (crop_h / 2))
             
-            # Need top-left of template relative to center
-            th, tw = tmpl.shape
-            # The find_mark returns top-left of match.
-            # We search for the top-left of the match.
-            # Expected top-left = exp_center - half_size
-            exp_tl_x = exp_cx - tw // 2
-            exp_tl_y = exp_cy - th // 2
+            # Enforce bounds
+            h_img, w_img = original_img.shape[:2]
+            start_x = max(0, start_x)
+            start_y = max(0, start_y)
+            end_x = min(w_img, start_x + crop_w)
+            end_y = min(h_img, start_y + crop_h)
             
-            roi_rect = (int(exp_tl_x - search_pad), int(exp_tl_y - search_pad), search_pad*2 + tw, search_pad*2 + th)
+            final_crop = original_img[start_y:end_y, start_x:end_x]
             
-            loc, score = find_mark(img_gray, tmpl, roi_rect)
+            # Save
+            base_name = os.path.splitext(img_file)[0]
+            crop_filename = f"{base_name}_crop.jpg"
+            crop_path = os.path.join(output_dir, crop_filename)
+            cv2.imwrite(crop_path, final_crop)
+            print(f"  Saved crop: {crop_path}")
             
-            if score < 0.5:
-                print(f"  Result: Mark {i+1} not found (score {score:.2f}). Skipping.")
-                found_marks = None # Invalidate
-                break
+        else:
+            # === 4-MARK HOMOGRAPHY (Camera 1) ===
+            found_marks = [[m1_cx, m1_cy]]
+            ref_m1 = ref_mark_points[0]
             
-            cx = loc[0] + tw // 2
-            cy = loc[1] + th // 2
-            found_marks.append([cx, cy])
+            for i in range(1, 4):
+                tmpl = cv2.cvtColor(templates[i], cv2.COLOR_BGR2GRAY)
+                ref_m = ref_mark_points[i]
+                
+                dx = ref_m[0] - ref_m1[0]
+                dy = ref_m[1] - ref_m1[1]
+                
+                exp_cx = m1_cx + dx
+                exp_cy = m1_cy + dy
+                
+                search_pad = 150
+                th, tw = tmpl.shape
+                exp_tl_x = exp_cx - tw // 2
+                exp_tl_y = exp_cy - th // 2
+                roi_rect = (int(exp_tl_x - search_pad), int(exp_tl_y - search_pad), search_pad*2 + tw, search_pad*2 + th)
+                
+                loc_i, score_i = find_mark(img_gray, tmpl, roi_rect)
+                
+                if score_i < 0.5:
+                    print(f"  Result: Mark {i+1} not found (score {score_i:.2f}). Skipping.")
+                    found_marks = None
+                    break
+                
+                cx = loc_i[0] + tw // 2
+                cy = loc_i[1] + th // 2
+                found_marks.append([cx, cy])
+                
+            if found_marks is None:
+                continue
+                
+            current_mark_points = np.array(found_marks, dtype=np.float32)
             
-        if found_marks is None:
-            continue
+            # Compute Homography
+            H, _ = cv2.findHomography(ref_mark_points, current_mark_points, cv2.RANSAC, 5.0)
+            if H is None:
+                print("  Result: Homography failed.")
+                continue
+                
+            # Map Calibration Corners
+            ref_corners_reshaped = ref_corner_points.reshape(-1, 1, 2)
+            current_corners = cv2.perspectiveTransform(ref_corners_reshaped, H)
+            src_crop_points = current_corners.reshape(4, 2).astype(np.float32)
             
-        current_mark_points = np.array(found_marks, dtype=np.float32)
-        
-        # 3. Compute Homography: Map Calibration Space -> Current Image Space
-        # We need to transform the "Calibration Corners" into "Current Image Corners"
-        # H maps Ref -> Current
-        H, _ = cv2.findHomography(ref_mark_points, current_mark_points, cv2.RANSAC, 5.0)
-        
-        if H is None:
-            print("  Result: Homography failed.")
-            continue
+            # Final Warp
+            w_top = np.linalg.norm(src_crop_points[0] - src_crop_points[1])
+            w_bot = np.linalg.norm(src_crop_points[3] - src_crop_points[2])
+            out_w = int((w_top + w_bot) / 2)
             
-        # 4. Map Calibration Corners to Current Image
-        # Reshape for perspectiveTransform: (N, 1, 2)
-        ref_corners_reshaped = ref_corner_points.reshape(-1, 1, 2)
-        current_corners = cv2.perspectiveTransform(ref_corners_reshaped, H)
-        src_crop_points = current_corners.reshape(4, 2).astype(np.float32)
-        
-        # 5. Final Warp (Straighten the crop)
-        # Define straight destination box
-        # Width: Top/Bottom avg
-        w_top = np.linalg.norm(src_crop_points[0] - src_crop_points[1])
-        w_bot = np.linalg.norm(src_crop_points[3] - src_crop_points[2])
-        out_w = int((w_top + w_bot) / 2)
-        
-        # Height: Left/Right avg
-        h_left = np.linalg.norm(src_crop_points[0] - src_crop_points[3])
-        h_right = np.linalg.norm(src_crop_points[1] - src_crop_points[2])
-        out_h = int((h_left + h_right) / 2)
-        
-        dst_rect = np.array([
-            [0, 0],
-            [out_w - 1, 0],
-            [out_w - 1, out_h - 1],
-            [0, out_h - 1]
-        ], dtype=np.float32)
-        
-        # Warp matrix from Current Distorted Corners -> Straight Box
-        M_final = cv2.getPerspectiveTransform(src_crop_points, dst_rect)
-        
-        final_crop = cv2.warpPerspective(original_img, M_final, (out_w, out_h))
-        
-        # 6. Save
-        base_name = os.path.splitext(img_file)[0]
-        crop_filename = f"{base_name}_homography.jpg"
-        crop_path = os.path.join(output_dir, crop_filename)
-        cv2.imwrite(crop_path, final_crop)
-        print(f"  Saved crop: {crop_path}")
+            h_left = np.linalg.norm(src_crop_points[0] - src_crop_points[3])
+            h_right = np.linalg.norm(src_crop_points[1] - src_crop_points[2])
+            out_h = int((h_left + h_right) / 2)
+            
+            dst_rect = np.array([
+                [0, 0],
+                [out_w - 1, 0],
+                [out_w - 1, out_h - 1],
+                [0, out_h - 1]
+            ], dtype=np.float32)
+            
+            M_final = cv2.getPerspectiveTransform(src_crop_points, dst_rect)
+            final_crop = cv2.warpPerspective(original_img, M_final, (out_w, out_h))
+            
+            base_name = os.path.splitext(img_file)[0]
+            crop_filename = f"{base_name}_homography.jpg"
+            crop_path = os.path.join(output_dir, crop_filename)
+            cv2.imwrite(crop_path, final_crop)
+            print(f"  Saved crop: {crop_path}")
 
     print("Processing complete.")
 

@@ -1,58 +1,15 @@
 {
     "calibration_marks": [
         {
-            "x": 134,
-            "y": 178,
-            "width": 288,
-            "height": 88,
-            "center_x": 278.0,
-            "center_y": 222.0,
+            "x": 796,
+            "y": 548,
+            "width": 1012,
+            "height": 954,
+            "center_x": 1302.0,
+            "center_y": 1025.0,
             "template": "cam0_mark0.jpg"
-        },
-        {
-            "x": 619,
-            "y": 147,
-            "width": 277,
-            "height": 83,
-            "center_x": 757.5,
-            "center_y": 188.5,
-            "template": "cam0_mark1.jpg"
-        },
-        {
-            "x": 105,
-            "y": 375,
-            "width": 290,
-            "height": 146,
-            "center_x": 250.0,
-            "center_y": 448.0,
-            "template": "cam0_mark2.jpg"
-        },
-        {
-            "x": 566,
-            "y": 414,
-            "width": 339,
-            "height": 92,
-            "center_x": 735.5,
-            "center_y": 460.0,
-            "template": "cam0_mark3.jpg"
         }
     ],
-    "calibration_corners": [
-        {
-            "x": 55,
-            "y": 121
-        },
-        {
-            "x": 972,
-            "y": 127
-        },
-        {
-            "x": 9,
-            "y": 544
-        },
-        {
-            "x": 978,
-            "y": 473
-        }
-    ]
+    "calibration_corners": [],
+    "padding": 50
 }

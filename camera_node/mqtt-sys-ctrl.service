@@ -1,0 +1,14 @@
+[Unit]
+Description=MQTT System Controller
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/wf51/pi5_sender/camera_node
+ExecStart=/usr/bin/python3 /home/wf51/pi5_sender/camera_node/mqtt_sys_ctrl.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

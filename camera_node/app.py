@@ -25,7 +25,7 @@ CAMERAS = {
     "cam0": {
         "device_id": 0,
         "config_path": os.path.join(base_dir, 'configs', 'config_cam0.json'),
-        "mode": "webui",
+        "mode": "tcp",
         "picam2": None,
         "tcp_process": None,
         "lock": threading.Lock(),
@@ -34,7 +34,7 @@ CAMERAS = {
     "cam1": {
         "device_id": 1,
         "config_path": os.path.join(base_dir, 'configs', 'config_cam1.json'),
-        "mode": "webui",
+        "mode": "tcp",
         "picam2": None,
         "tcp_process": None,
         "lock": threading.Lock(),

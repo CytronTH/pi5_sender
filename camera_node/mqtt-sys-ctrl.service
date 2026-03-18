@@ -3,6 +3,7 @@ Description=MQTT System Controller
 After=network.target
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=simple
 User=root
 WorkingDirectory=/home/wf51/pi5_sender/camera_node

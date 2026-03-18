@@ -48,9 +48,8 @@ def mqtt_status_publisher():
         try:
             if client.is_connected():
                 status_payload = {
-                    "system": "alive",
-                    "hostname": hostname,
-                    "timestamp": time.time()
+                    "system": "online",
+                    "hostname": hostname
                 }
                 client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(status_payload), retain=True)
                 
@@ -66,7 +65,7 @@ def on_client_connect(client, userdata, flags, reason_code, properties):
     print(f"INFO: Subscribed to system topic: {MQTT_TOPIC_SYS}")
     
     # Send an initial connect status immediately
-    status_payload = {"system": "online", "hostname": hostname, "timestamp": time.time()}
+    status_payload = {"system": "online", "hostname": hostname}
     client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(status_payload), retain=True)
 
 def on_client_message(client, userdata, msg):
@@ -82,7 +81,7 @@ def on_client_message(client, userdata, msg):
                 print("WARNING: Restarting system via MQTT command...")
                 
                 # Send closing status
-                closing_payload = {"system": "restarting", "hostname": hostname, "timestamp": time.time()}
+                closing_payload = {"system": "restarting", "hostname": hostname}
                 client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(closing_payload), retain=True)
                 time.sleep(0.5)
                 
@@ -91,7 +90,7 @@ def on_client_message(client, userdata, msg):
                 print("WARNING: Shutting down system via MQTT command...")
                 
                 # Send closing status
-                closing_payload = {"system": "offline", "hostname": hostname, "timestamp": time.time()}
+                closing_payload = {"system": "offline", "hostname": hostname}
                 client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(closing_payload), retain=True)
                 time.sleep(0.5)
                 
@@ -102,12 +101,28 @@ def on_client_message(client, userdata, msg):
     except Exception as e:
         print(f"ERROR: Error handling MQTT message: {e}")
 
+import signal
+import sys
+
+def graceful_exit(signum, frame):
+    print(f"INFO: Received signal {signum}, disconnecting MQTT gracefully...")
+    try:
+        closing_payload = {"system": "offline", "hostname": hostname}
+        client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(closing_payload), retain=True)
+        time.sleep(0.5)
+        client.disconnect()
+    except:
+        pass
+    sys.exit(0)
+
 if __name__ == "__main__":
     print(f"INFO: Starting MQTT System Controller for {hostname}")
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    # Use a static client ID so reconnects cancel pending LWTs
+    client_id = f"{hostname}_sys_ctrl"
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
     
     # Configure Last Will and Testament (LWT) for unexpected disconnects
-    lwt_payload = json.dumps({"system": "offline", "hostname": hostname, "timestamp": time.time(), "reason": "unexpected_disconnect"})
+    lwt_payload = json.dumps({"system": "offline", "hostname": hostname})
     client.will_set(MQTT_TOPIC_SYS_STATUS, lwt_payload, retain=True)
     
     if MQTT_USERNAME and MQTT_PASSWORD:
@@ -115,6 +130,9 @@ if __name__ == "__main__":
         
     client.on_connect = on_client_connect
     client.on_message = on_client_message
+    
+    signal.signal(signal.SIGTERM, graceful_exit)
+    signal.signal(signal.SIGINT, graceful_exit)
     
     # Start status publisher thread
     threading.Thread(target=mqtt_status_publisher, daemon=True).start()

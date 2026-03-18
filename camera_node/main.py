@@ -185,6 +185,9 @@ def init_preprocessing():
             with open(mask_config_path, "r") as f:
                 mask_config = json.load(f)
             print(f"INFO: Loaded mask config with {len(mask_config.get('mask_regions', []))} regions.")
+        except FileNotFoundError:
+            print(f"WARNING: Mask config not found at {mask_config_path}. Box cropping will be skipped.")
+            mask_config = None
         except Exception as e:
             raise RuntimeError(f"CRITICAL ERROR: Failed to load mask config: {e}. Program will terminate.")
 
@@ -354,12 +357,23 @@ def pre_process_worker():
             # Check if we should fallback to just sending/saving raw images.
             # This happens if:
             # 1. We want alignment/cropping but the configs were not found
-            # 2. Both alignment and cropping are explicitly disabled (e.g. from Fallback Config)
-            missing_configs = (enable_align and not preproc_config) or (enable_crop and not mask_config)
-            calibration_mode_active = (not enable_align) and (not enable_crop)
+            # 1. We want alignment but the calibration config is missing
+            # 2. We want cropping but the mask config is missing, AND alignment is disabled or missing
+            # 3. Both alignment and cropping are explicitly disabled (e.g. from Fallback Config)
+            missing_align = enable_align and not preproc_config
+            missing_crop = enable_crop and not mask_config
             
-            if missing_configs or calibration_mode_active:
-                if missing_configs:
+            # If alignment is enabled and configured, we can still align even if crop is missing.
+            # But if BOTH the configured features are missing, or we are in calibration mode, send raw.
+            calibration_mode_active = (not enable_align) and (not enable_crop)
+            fallback_to_raw = calibration_mode_active or (missing_align and missing_crop)
+            
+            # If alignment is missing, we cannot do ANYTHING (alignment is prereq for crop)
+            if missing_align and enable_align:
+                fallback_to_raw = True
+            
+            if fallback_to_raw:
+                if not calibration_mode_active:
                     print("INFO: Sending raw image for calibration (Missing JSON configs)")
                 else:
                     print("INFO: Sending raw image for calibration (Calibration Mode Active)")
@@ -403,8 +417,6 @@ def pre_process_worker():
                     cv2.circle(debug_img, (int(m1_cx), int(m1_cy)), 5, (0, 0, 255), -1)
                     cv2.putText(debug_img, "M1", (loc[0], loc[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
                 
-                is_single_mark = len(ref_mark_points) == 1
-                
                 if is_single_mark:
                     # === SINGLE MARK CENTER CROP (Camera 0) ===
                     padding = preproc_config.get("padding", 50)
@@ -435,11 +447,11 @@ def pre_process_worker():
                         cv2.imwrite(save_path, debug_img)
                         
                 else:
-                    # === 4-MARK HOMOGRAPHY (Camera 1) ===
+                    # === MULTI-MARK ALIGNMENT (Camera 1) ===
                     ref_m1 = ref_mark_points[0]
                     valid = True
                     
-                    for i in range(1, 4):
+                    for i in range(1, len(ref_mark_points)):
                         tmpl = cv2.cvtColor(preproc_templates[i], cv2.COLOR_BGR2GRAY)
                         ref_m = ref_mark_points[i]
                         dx, dy = ref_m[0] - ref_m1[0], ref_m[1] - ref_m1[1]
@@ -480,12 +492,19 @@ def pre_process_worker():
                         cv2.imwrite(save_path, debug_img)
                         
                     input_marks = np.array(found_marks, dtype=np.float32)
-                    H, _ = cv2.findHomography(input_marks, target_marks, cv2.RANSAC, 5.0)
                     
-                    if H is None:
-                        raise ValueError("Homography Matrix calculation failed.")
-                        
-                    aligned_img = cv2.warpPerspective(frame, H, output_size)
+                    if len(input_marks) == 4:
+                        H, _ = cv2.findHomography(input_marks, target_marks, cv2.RANSAC, 5.0)
+                        if H is None:
+                            raise ValueError("Homography Matrix calculation failed.")
+                        aligned_img = cv2.warpPerspective(frame, H, output_size)
+                    elif len(input_marks) == 2:
+                        M, _ = cv2.estimateAffinePartial2D(input_marks, target_marks)
+                        if M is None:
+                            raise ValueError("Affine Matrix calculation failed.")
+                        aligned_img = cv2.warpAffine(frame, M, output_size)
+                    else:
+                        raise ValueError(f"Unsupported number of marks for alignment: {len(input_marks)}")
             else:
                 aligned_img = frame.copy()
             

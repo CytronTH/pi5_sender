@@ -50,6 +50,7 @@
             font-weight: 800;
             background: var(--primary-gradient);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             margin-bottom: 0.5rem;
             text-shadow: var(--glow);
@@ -79,6 +80,65 @@
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             animation: fadeInUp 0.8s ease-out backwards;
             animation-delay: 0.2s;
+        }
+
+        /* System Stats Floating Panel */
+        .sys-monitor-panel {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 10px 15px;
+            min-width: 180px;
+            z-index: 1000;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            animation: fadeInDown 0.8s ease-out backwards;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sys-gauge-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .sys-gauge-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .sys-gauge-val {
+            color: var(--text-main);
+            font-size: 0.75rem;
+        }
+
+        .sys-bar-track {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .sys-bar-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 3px;
+            transition: width 0.5s ease-out, background-color 0.3s ease;
+            /* default color */
+            background-color: var(--success-color);
         }
 
         /* Video Feed Section */
@@ -557,6 +617,46 @@
         <p>Manage Picamera2 Stream & Network Sender (Dual Camera)</p>
     </div>
 
+    <!-- System Stats Floating Panel -->
+    <div class="sys-monitor-panel">
+        <div class="sys-gauge-row">
+            <div class="sys-gauge-header">
+                <span>CPU</span>
+                <span class="sys-gauge-val" id="statCpuLabel">--%</span>
+            </div>
+            <div class="sys-bar-track">
+                <div class="sys-bar-fill" id="statCpuFill"></div>
+            </div>
+        </div>
+        <div class="sys-gauge-row">
+            <div class="sys-gauge-header">
+                <span>RAM</span>
+                <span class="sys-gauge-val" id="statRamLabel">--%</span>
+            </div>
+            <div class="sys-bar-track">
+                <div class="sys-bar-fill" id="statRamFill"></div>
+            </div>
+        </div>
+        <div class="sys-gauge-row">
+            <div class="sys-gauge-header">
+                <span>Temp</span>
+                <span class="sys-gauge-val" id="statTempLabel">--°C</span>
+            </div>
+            <div class="sys-bar-track">
+                <div class="sys-bar-fill" id="statTempFill"></div>
+            </div>
+        </div>
+        <div class="sys-gauge-row">
+            <div class="sys-gauge-header" title="Disk Free: --GB" id="statDiskContainer">
+                <span>Disk</span>
+                <span class="sys-gauge-val" id="statDiskLabel">--%</span>
+            </div>
+            <div class="sys-bar-track">
+                <div class="sys-bar-fill" id="statDiskFill"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Dual Camera Grid -->
     <div class="container dual-grid">
         
@@ -606,6 +706,14 @@
                             <input type="range" id="focusSlider_cam0" style="flex: 2; display: none;" min="0.0" max="10.0" step="0.1" value="0.0" oninput="updateCamControl('cam0', 'LensPosition', this.value)">
                             <span id="focusVal_cam0" style="display: none; width: 30px; text-align: right;">0.0</span>
                         </div>
+                    </div>
+                    <div class="slider-group">
+                        <label>WebUI Preview Compression</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="previewResize_cam0" onchange="updatePreviewResize('cam0', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                     <div id="saveStatus_cam0" style="color: var(--success-color); font-size: 0.8rem; text-align: right; margin-top: 0.5rem; min-height: 1.2rem;"></div>
                 </div>
             </details>
@@ -618,6 +726,9 @@
                 </button>
                 <button class="btn btn-settings" onclick="openCalibration('cam0')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
                     🎯 Calibrate
+                </button>
+                <button class="btn btn-settings" onclick="window.open('/debug/cam0', 'debugWindow_cam0', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
+                    🐛 Debug Logs
                 </button>
             </div>
         </div>
@@ -668,6 +779,14 @@
                             <input type="range" id="focusSlider_cam1" style="flex: 2; display: none;" min="0.0" max="10.0" step="0.1" value="0.0" oninput="updateCamControl('cam1', 'LensPosition', this.value)">
                             <span id="focusVal_cam1" style="display: none; width: 30px; text-align: right;">0.0</span>
                         </div>
+                    </div>
+                    <div class="slider-group">
+                        <label>WebUI Preview Compression</label>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="previewResize_cam1" onchange="updatePreviewResize('cam1', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                     <div id="saveStatus_cam1" style="color: var(--success-color); font-size: 0.8rem; text-align: right; margin-top: 0.5rem; min-height: 1.2rem;"></div>
                 </div>
             </details>
@@ -680,6 +799,9 @@
                 </button>
                 <button class="btn btn-settings" onclick="openCalibration('cam1')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
                     🎯 Calibrate
+                </button>
+                <button class="btn btn-settings" onclick="window.open('/debug/cam1', 'debugWindow_cam1', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
+                    🐛 Debug Logs
                 </button>
             </div>
         </div>
@@ -780,6 +902,8 @@
         const loadingOverlay = document.getElementById('loadingOverlay');
         const settingsModal = document.getElementById('settingsModal');
 
+        let initialLoadDone = { "cam0": false, "cam1": false };
+
         function updateUI(cam_id, mode, tcpPid = null, sensorName = "Unknown", displayName = null) {
             currentMode[cam_id] = mode;
             
@@ -806,9 +930,11 @@
                 placeholderText.style.display = 'none';
                 videoFeed.style.display = 'block';
                 
-                // Only refresh image if it's currently hidden or src is empty to prevent flicker
-                if (!videoFeed.src || !videoFeed.src.includes(`/video_feed/${cam_id}`)) {
+                const currentUrl = videoFeed.src || "";
+                
+                if (!initialLoadDone[cam_id] || !currentUrl.includes(`/video_feed/${cam_id}`)) {
                      videoFeed.src = `/video_feed/${cam_id}?t=` + new Date().getTime();
+                     initialLoadDone[cam_id] = true;
                 }
             } else {
                 btnTcp.classList.add('active');
@@ -827,6 +953,12 @@
         }
 
         async function switchMode(cam_id, targetMode) {
+            if (targetMode === 'webui' && currentMode[cam_id] === 'webui') {
+                 // Force reload image if clicked again
+                 const videoFeed = document.getElementById(`videoFeed_${cam_id}`);
+                 videoFeed.src = `/video_feed/${cam_id}?t=` + new Date().getTime();
+                 return;
+            }
             if (targetMode === currentMode[cam_id]) return;
             loadingOverlay.classList.add('active');
             try {
@@ -842,6 +974,7 @@
                     if (targetMode === 'webui') {
                          const videoFeed = document.getElementById(`videoFeed_${cam_id}`);
                          videoFeed.src = `/video_feed/${cam_id}?t=` + new Date().getTime();
+                         initialLoadDone[cam_id] = true;
                     }
                     setTimeout(() => {
                         checkStatus(); // Force a fresh status check
@@ -1151,6 +1284,16 @@
             
             debouncedSaveCameraControls(cam_id);
         }
+
+        function updatePreviewResize(cam_id, isEnabled) {
+            // This setting is saved directly, not part of currentCamControls
+            fetch(`/api/config/${cam_id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // We send it in root because it's a runtime WebUI parameter, not a hardware param
+                body: JSON.stringify({ "preview_resize": isEnabled })
+            }).catch(e => console.error("Error updating preview resize:", e));
+        }
         
         async function saveCameraControls(cam_id) {
             const statusEl = document.getElementById(`saveStatus_${cam_id}`);
@@ -1228,6 +1371,13 @@
                          document.getElementById(`focusVal_${cam_id}`).innerText = config.controls.LensPosition;
                     }
                 }
+
+                // Load WebUI Preview Compression setting
+                if (config.preview_resize !== undefined) {
+                    const pr = document.getElementById(`previewResize_${cam_id}`);
+                    if (pr) pr.checked = config.preview_resize;
+                }
+
             } catch (e) {
                 console.error(`Failed to load initial controls for ${cam_id}:`, e);
             }
@@ -1263,7 +1413,7 @@
                 document.getElementById('optCornersLabel').style.display = 'none'; // No corners for cam0
                 document.getElementById('cam0PaddingOption').style.display = 'flex';
             } else {
-                document.getElementById('optMarksText').innerText = "1. Draw 4 Marker Boxes";
+                document.getElementById('optMarksText').innerText = "1. Draw 2 Marker Boxes";
                 document.getElementById('optCornersLabel').style.display = 'inline';
                 document.getElementById('cam0PaddingOption').style.display = 'none';
             }
@@ -1302,7 +1452,7 @@
                 }
             } else {
                 if (step === 'marks') {
-                    instr.innerText = "Step 1: Click and drag to draw exactly 4 marker boxes around the physical tracking symbols.";
+                    instr.innerText = "Step 1: Click and drag to draw exactly 2 marker boxes around the physical tracking symbols.";
                 } else {
                     instr.innerText = "Step 2: Click exactly 4 corner points indicating the TRUE boundary of your tracking area.";
                 }
@@ -1440,7 +1590,7 @@
             
             if (calibMode === 'align') {
                 if (alignStep === 'marks') {
-                    const maxMarks = calibCamId === 'cam0' ? 1 : 4;
+                    const maxMarks = calibCamId === 'cam0' ? 1 : 2;
                     if (alignMarks.length < maxMarks) {
                         isDrawing = true;
                         startX = pos.x;
@@ -1547,8 +1697,8 @@
                             return;
                         }
                     } else {
-                        if (alignMarks.length !== 4) {
-                            alert("You must define exactly 4 MARKS.");
+                        if (alignMarks.length !== 2) {
+                            alert("You must define exactly 2 MARKS.");
                             btn.innerText = origText;
                             return;
                         }
@@ -1617,12 +1767,66 @@
         // Initialize UI on load
         window.addEventListener('load', () => {
              checkStatus();
+             pollSystemStats();
              setInterval(checkStatus, 5000);
+             setInterval(pollSystemStats, 2500);
              
              // Load initial camera controls from backend configs
              loadCameraControls('cam0');
              loadCameraControls('cam1');
         });
+
+        // Helper for setting gauge bar width & color
+        function setGauge(elId, value, maxValue, warningThreshold, dangerThreshold) {
+            const pct = Math.min((value / maxValue) * 100, 100);
+            const fill = document.getElementById(elId + 'Fill');
+            const label = document.getElementById(elId + 'Label');
+            
+            if (!fill || !label) return;
+            
+            fill.style.width = pct + '%';
+            
+            // Dynamic color
+            if (value >= dangerThreshold) {
+                fill.style.backgroundColor = 'var(--danger-color)';
+            } else if (value >= warningThreshold) {
+                fill.style.backgroundColor = 'var(--warning-color)';
+            } else {
+                fill.style.backgroundColor = 'var(--success-color)';
+            }
+            
+            // Text update logic
+            if (elId === 'statTemp') {
+                label.innerText = value.toFixed(1) + '°C';
+            } else {
+                label.innerText = value.toFixed(1) + '%';
+            }
+        }
+
+        async function pollSystemStats() {
+            try {
+                const res = await fetch('/api/system_stats');
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    // Update Gauges
+                    // (elementBaseId, value, maxValue, warning, danger)
+                    setGauge('statCpu', data.cpu, 100, 70, 90);
+                    setGauge('statRam', data.ram, 100, 75, 90);
+                    setGauge('statTemp', data.temp, 90, 65, 80); // Assuming 90C is full scale
+                    setGauge('statDisk', data.disk_percent, 100, 80, 95);
+                    
+                    // Update tooltip for disk
+                    const diskContainer = document.getElementById('statDiskContainer');
+                    if (diskContainer) {
+                        diskContainer.setAttribute('title', `Free: ${data.disk_free_gb.toFixed(1)}GB / Total: ${data.disk_total_gb.toFixed(1)}GB`);
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching system stats:", err);
+            }
+        }
         
         // Close modal on outside click
         window.onclick = function(event) {

@@ -126,9 +126,9 @@ def main():
         m1_cy = loc[1] + th // 2
         found_marks.append([m1_cx, m1_cy])
         
-        # Find Marks 2-4
+        # Find Marks 2-N
         valid = True
-        for i in range(1, 4):
+        for i in range(1, len(ref_mark_points)):
             tmpl = cv2.cvtColor(templates[i], cv2.COLOR_BGR2GRAY)
             ref_m = ref_mark_points[i]
             dx = ref_m[0] - ref_m1[0]
@@ -154,14 +154,21 @@ def main():
         
         # --- Crucial Difference: Registration ---
         # We want to warp Input Image such that Input Marks -> Target Marks
-        H, _ = cv2.findHomography(input_marks, target_marks, cv2.RANSAC, 5.0)
-        
-        if H is None:
-            print(f"Homography failed for {img_file}")
+        if len(input_marks) == 4:
+            H, _ = cv2.findHomography(input_marks, target_marks, cv2.RANSAC, 5.0)
+            if H is None:
+                print(f"Homography failed for {img_file}")
+                continue
+            aligned_img = cv2.warpPerspective(img, H, output_size)
+        elif len(input_marks) == 2:
+            M, _ = cv2.estimateAffinePartial2D(input_marks, target_marks)
+            if M is None:
+                print(f"Affine Transform failed for {img_file}")
+                continue
+            aligned_img = cv2.warpAffine(img, M, output_size)
+        else:
+            print(f"Unsupported number of marks ({len(input_marks)}) for {img_file}")
             continue
-            
-        # Warp directly to output size
-        aligned_img = cv2.warpPerspective(img, H, output_size)
         
         out_path = os.path.join(args.output, f"{os.path.splitext(img_file)[0]}_aligned.jpg")
         cv2.imwrite(out_path, aligned_img)

@@ -7,6 +7,7 @@ import cv2
 import socket
 from flask import Flask, render_template, Response, jsonify, request, send_file
 from picamera2 import Picamera2
+import psutil
 
 app = Flask(__name__)
 
@@ -22,7 +23,8 @@ CAMERAS = {
         "mode": "webui",
         "picam2": None,
         "tcp_process": None,
-        "lock": threading.Lock()
+        "lock": threading.Lock(),
+        "preview_resize": True  # Default to True for bandwidth savings
     },
     "cam1": {
         "device_id": 1,
@@ -30,7 +32,8 @@ CAMERAS = {
         "mode": "webui",
         "picam2": None,
         "tcp_process": None,
-        "lock": threading.Lock()
+        "lock": threading.Lock(),
+        "preview_resize": True
     }
 }
 
@@ -166,45 +169,56 @@ def generate_frames(cam_id):
     """Generator function that yields JPEG frames from Picamera2."""
     cam_data = CAMERAS[cam_id]
     while True:
+        frame_bytes = None
+        w, h = 0, 0
+        
         with cam_data["lock"]:
             if cam_data["mode"] != 'webui' or cam_data["picam2"] is None:
                 # If not in WebUI mode, yield nothing or sleep
-                time.sleep(1)
-                continue
-
-            try:
-                # Capture frame from the camera
-                frame = cam_data["picam2"].capture_array()
-                
-                # Add resolution label to the bottom right corner
-                h, w = frame.shape[:2]
-                text = f"{w}x{h}"
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.5 if w < 1000 else 1.0
-                thickness = 1 if w < 1000 else 2
-                text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
-                text_w, text_h = text_size
-                org = (w - text_w - 10, h - 10)
-                
-                # Draw black background rectangle for better visibility
-                cv2.rectangle(frame, (org[0] - 5, org[1] - text_h - 5), (w, h), (0, 0, 0), -1)
-                cv2.putText(frame, text, org, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
-
-                # Encode to JPEG
-                ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                if not ret:
-                    time.sleep(0.1)
-                    continue
+                pass
+            else:
+                try:
+                    # Capture frame from the camera
+                    frame = cam_data["picam2"].capture_array()
                     
-                frame_bytes = buffer.tobytes()
-                
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                
-                time.sleep(0.05) 
-            except Exception as e:
-                print(f"ERROR: Frame capture error on {cam_id}: {e}")
-                time.sleep(1)
+                    # Resize frame to save CPU and Bandwidth in WebUI preview mode
+                    PREVIEW_MAX_WIDTH = 800
+                    h, w = frame.shape[:2]
+                    
+                    if cam_data.get("preview_resize", True) and w > PREVIEW_MAX_WIDTH:
+                        scale = PREVIEW_MAX_WIDTH / w
+                        target_h = int(h * scale)
+                        frame = cv2.resize(frame, (PREVIEW_MAX_WIDTH, target_h), interpolation=cv2.INTER_AREA)
+                        h, w = frame.shape[:2]
+
+                    # Add resolution label to the bottom right corner
+                    text = f"{w}x{h}"
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    font_scale = 0.5 if w < 1000 else 1.0
+                    thickness = 1 if w < 1000 else 2
+                    text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
+                    text_w, text_h = text_size
+                    org = (w - text_w - 10, h - 10)
+                    
+                    # Draw black background rectangle for better visibility
+                    cv2.rectangle(frame, (org[0] - 5, org[1] - text_h - 5), (w, h), (0, 0, 0), -1)
+                    cv2.putText(frame, text, org, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+                    # Encode to JPEG
+                    ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                    if ret:
+                        frame_bytes = buffer.tobytes()
+                except Exception as e:
+                    print(f"ERROR: Frame capture error on {cam_id}: {e}")
+
+        if frame_bytes is None:
+             time.sleep(1)
+             continue
+             
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        
+        time.sleep(0.05)
 
 # --- API Routes for Config ---
 @app.route('/api/config/<cam_id>', methods=['GET'])
@@ -216,8 +230,10 @@ def get_config(cam_id):
     try:
         cfg_path = CAMERAS[cam_id]["config_path"]
         if os.path.exists(cfg_path):
-            with open(cfg_path, 'r') as f:
-                return jsonify(json.load(f))
+            config = json.load(open(cfg_path, 'r'))
+            # Add runtime preview_resize state to the config for UI
+            config["preview_resize"] = CAMERAS[cam_id].get("preview_resize", True)
+            return jsonify(config)
         else:
             return jsonify({"error": "Config file not found"}), 404
     except Exception as e:
@@ -234,6 +250,11 @@ def save_config(cam_id):
         if not new_config:
             return jsonify({"error": "No JSON payload provided"}), 400
             
+        # Extract and update runtime preview_resize state if present
+        if "preview_resize" in new_config:
+            CAMERAS[cam_id]["preview_resize"] = bool(new_config.pop("preview_resize"))
+            print(f"INFO: Updated preview_resize for {cam_id} to {CAMERAS[cam_id]['preview_resize']}")
+
         required_sections = ["tcp", "mqtt", "camera", "preprocessing", "sftp"]
         for section in required_sections:
             if section not in new_config:
@@ -451,14 +472,32 @@ def save_alignment(cam_id):
         
         # Backward compatibility or if user skipped corners
         if cam_id != 'cam0' and len(corners) != 4:
-            corners = marks
+            if len(marks) == 4:
+                corners = marks
+            elif len(marks) == 2:
+                # If only 2 marks, create 4 corners from bounding box of the 2 marks
+                x_coords = [m.get("x", 0) for m in marks]
+                y_coords = [m.get("y", 0) for m in marks]
+                min_x, max_x = min(x_coords), max(x_coords)
+                min_y, max_y = min(y_coords), max(y_coords)
+                # Expand slightly to encompass the marks width/height
+                w0 = marks[0].get("width", 60)
+                h0 = marks[0].get("height", 60)
+                max_x += w0
+                max_y += h0
+                corners = [
+                    {"x": min_x, "y": min_y},
+                    {"x": max_x, "y": min_y},
+                    {"x": max_x, "y": max_y},
+                    {"x": min_x, "y": max_y}
+                ]
             
         if cam_id == 'cam0':
             if len(marks) != 1:
                 return jsonify({"error": "Exactly 1 marker point is required for Camera 0"}), 400
         else:
-            if len(marks) != 4:
-                return jsonify({"error": "Exactly 4 marker points are required for Camera 1"}), 400
+            if len(marks) != 2:
+                return jsonify({"error": "Exactly 2 marker points are required for Camera 1"}), 400
             
         img_path = os.path.join(base_dir, "logs", f"{cam_id}_calibration_target.jpg")
         if not os.path.exists(img_path):
@@ -540,6 +579,31 @@ def save_crop(cam_id):
         return jsonify({"error": str(e)}), 500
 
 # --- Routes ---
+@app.route('/api/system_stats', methods=['GET'])
+def system_stats():
+    try:
+        cpu = psutil.cpu_percent(interval=0.1)
+        ram = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
+        
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                temp_c = float(f.read().strip()) / 1000.0
+        except Exception:
+            temp_c = 0.0
+
+        return jsonify({
+            "status": "success",
+            "cpu": cpu,
+            "ram": ram.percent,
+            "temp": round(temp_c, 1),
+            "disk_percent": disk.percent,
+            "disk_free_gb": round(disk.free / (1024**3), 1),
+            "disk_total_gb": round(disk.total / (1024**3), 1)
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/favicon.ico')
 def favicon():
     return '', 204
@@ -577,6 +641,41 @@ def get_camera_display_name(cam_id):
     except:
         pass
     return display_name
+
+@app.route('/debug/<cam_id>')
+def debug_view(cam_id):
+    """Serve the debug log viewer page."""
+    if cam_id not in CAMERAS:
+        return "Camera ID not found", 404
+    hostname = socket.gethostname()
+    display_name = get_camera_display_name(cam_id)
+    return render_template('debug.html', cam_id=cam_id, hostname=hostname, display_name=display_name)
+
+@app.route('/api/logs/<cam_id>')
+def api_logs(cam_id):
+    """Fetch recent systemd logs for the specific camera based on its current mode."""
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+        
+    mode = CAMERAS[cam_id]["mode"]
+    cam_num = cam_id.replace('cam', '')
+    
+    try:
+        if mode == 'tcp':
+            service_name = f"camera-sender@{cam_num}.service"
+        else:
+            service_name = "camera-app.service"
+            
+        cmd = ['sudo', 'journalctl', '-u', service_name, '-n', '100', '--no-pager', '--output=short-iso']
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return jsonify({
+            "status": "success",
+            "mode": mode,
+            "service": service_name,
+            "logs": result.stdout
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/status')
 def status():

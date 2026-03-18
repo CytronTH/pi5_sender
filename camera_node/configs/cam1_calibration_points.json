@@ -1,0 +1,40 @@
+{
+    "calibration_marks": [
+        {
+            "x": 2234,
+            "y": 648,
+            "width": 408,
+            "height": 377,
+            "center_x": 2438.0,
+            "center_y": 836.5,
+            "template": "cam1_mark0.jpg"
+        },
+        {
+            "x": 2797,
+            "y": 679,
+            "width": 744,
+            "height": 258,
+            "center_x": 3169.0,
+            "center_y": 808.0,
+            "template": "cam1_mark1.jpg"
+        }
+    ],
+    "calibration_corners": [
+        {
+            "x": 1671,
+            "y": 586
+        },
+        {
+            "x": 3986,
+            "y": 446
+        },
+        {
+            "x": 4136,
+            "y": 1676
+        },
+        {
+            "x": 1718,
+            "y": 1867
+        }
+    ]
+}

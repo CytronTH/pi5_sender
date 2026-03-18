@@ -215,6 +215,7 @@
 
     <script>
         const camId = "{{ cam_id }}";
+        const serverStartTime = "{{ start_time }}";
         const logContainer = document.getElementById('logContainer');
         const autoScrollToggle = document.getElementById('autoScrollToggle');
         const serviceBadge = document.getElementById('serviceBadge');
@@ -264,7 +265,7 @@
             statusIndicator.style.color = "var(--success-color)";
             
             try {
-                const response = await fetch(`/api/logs/${camId}`);
+                const response = await fetch(`/api/logs/${camId}?since=${encodeURIComponent(serverStartTime)}`);
                 if (response.ok) {
                     const data = await response.json();
                     
@@ -286,11 +287,16 @@
                             }
                         }
                         
+                        // Preserve scroll position if auto-scroll is off
+                        const previousScrollTop = logContainer.scrollTop;
+                        
                         logContainer.innerHTML = html;
                         
-                        // Auto-scroll
+                        // Auto-scroll logic
                         if (autoScrollToggle.checked) {
                             logContainer.scrollTop = logContainer.scrollHeight;
+                        } else {
+                            logContainer.scrollTop = previousScrollTop;
                         }
                     }
                 } else {

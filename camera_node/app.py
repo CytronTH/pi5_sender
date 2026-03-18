@@ -8,6 +8,11 @@ import socket
 from flask import Flask, render_template, Response, jsonify, request, send_file
 from picamera2 import Picamera2
 import psutil
+import datetime
+
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
@@ -649,7 +654,8 @@ def debug_view(cam_id):
         return "Camera ID not found", 404
     hostname = socket.gethostname()
     display_name = get_camera_display_name(cam_id)
-    return render_template('debug.html', cam_id=cam_id, hostname=hostname, display_name=display_name)
+    server_start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return render_template('debug.html', cam_id=cam_id, hostname=hostname, display_name=display_name, start_time=server_start_time)
 
 @app.route('/api/logs/<cam_id>')
 def api_logs(cam_id):
@@ -659,6 +665,7 @@ def api_logs(cam_id):
         
     mode = CAMERAS[cam_id]["mode"]
     cam_num = cam_id.replace('cam', '')
+    since = request.args.get('since')
     
     try:
         if mode == 'tcp':
@@ -666,13 +673,26 @@ def api_logs(cam_id):
         else:
             service_name = "camera-app.service"
             
-        cmd = ['sudo', 'journalctl', '-u', service_name, '-n', '100', '--no-pager', '--output=short-iso']
+        cmd = ['sudo', 'journalctl', '-u', service_name, '--no-pager', '--output=short-iso', '-n', '1000']
+        if since:
+            cmd.extend(['--since', since])
+            
         result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Filter out noisy sudo and journalctl logs
+        filtered_lines = []
+        for line in result.stdout.splitlines():
+            if 'COMMAND=/usr/bin/journalctl' in line or 'pam_unix(sudo:session)' in line:
+                continue
+            filtered_lines.append(line)
+        
+        filtered_logs = '\n'.join(filtered_lines) + '\n' if filtered_lines else ""
+
         return jsonify({
             "status": "success",
             "mode": mode,
             "service": service_name,
-            "logs": result.stdout
+            "logs": filtered_logs
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

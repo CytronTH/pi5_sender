@@ -5,6 +5,29 @@ import threading
 import subprocess
 import cv2
 import socket
+import subprocess
+import time
+import sys
+
+# Ensure cameras are not busy before any modules (like picamera2) are imported.
+# Importing picamera2 initializes the libcamera CameraManager, which caches hardware states.
+print("INFO: Stopping any background camera senders before initializing CameraManager...")
+try:
+    subprocess.run(['sudo', 'systemctl', 'stop', 'camera-sender@0.service'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['sudo', 'systemctl', 'stop', 'camera-sender@1.service'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)
+except Exception as e:
+    pass
+
+print("INFO: Pre-initializing CameraManager to enumerate cameras while they are free...", flush=True)
+try:
+    import libcamera
+    # We MUST save it to a variable, otherwise Python's Garbage Collector instantly destroys it,
+    # defeating the entire purpose of the pre-initialization cache!
+    global_cm = libcamera.CameraManager.singleton()
+except Exception as e:
+    print(f"Warning: Failed to pre-initialize libcamera CameraManager: {e}")
+
 from flask import Flask, render_template, Response, jsonify, request, send_file
 from picamera2 import Picamera2
 import psutil
@@ -198,7 +221,8 @@ def generate_frames(cam_id):
                     
                     # Resize frame to save CPU and Bandwidth in WebUI preview mode
                     PREVIEW_MAX_WIDTH = 800
-                    h, w = frame.shape[:2]
+                    orig_h, orig_w = frame.shape[:2]
+                    h, w = orig_h, orig_w
                     
                     if cam_data.get("preview_resize", True) and w > PREVIEW_MAX_WIDTH:
                         scale = PREVIEW_MAX_WIDTH / w
@@ -206,18 +230,9 @@ def generate_frames(cam_id):
                         frame = cv2.resize(frame, (PREVIEW_MAX_WIDTH, target_h), interpolation=cv2.INTER_AREA)
                         h, w = frame.shape[:2]
 
-                    # Add resolution label to the bottom right corner
-                    text = f"{w}x{h}"
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 0.5 if w < 1000 else 1.0
-                    thickness = 1 if w < 1000 else 2
-                    text_size, _ = cv2.getTextSize(text, font, font_scale, thickness)
-                    text_w, text_h = text_size
-                    org = (w - text_w - 10, h - 10)
-                    
-                    # Draw black background rectangle for better visibility
-                    cv2.rectangle(frame, (org[0] - 5, org[1] - text_h - 5), (w, h), (0, 0, 0), -1)
-                    cv2.putText(frame, text, org, font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+                    # Expose current native resolution to the API
+                    cam_data["current_res"] = f"{orig_w}x{orig_h}"
+
 
                     # Encode to JPEG
                     ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -733,7 +748,8 @@ def status():
             "mode": cam["mode"],
             "tcp_pid": cam["tcp_process"].pid if cam["tcp_process"] and cam["tcp_process"].poll() is None else None,
             "sensor_name": cam.get("sensor_name", "Unknown"),
-            "display_name": get_camera_display_name(cid)
+            "display_name": get_camera_display_name(cid),
+            "current_res": cam.get("current_res", "Unknown")
         }
     return jsonify(res)
 

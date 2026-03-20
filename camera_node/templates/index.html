@@ -678,6 +678,7 @@
                 </div>
                 <img id="videoFeed_cam0" class="video-feed" alt="Live Camera Stream">
             </div>
+            <div style="text-align: right; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;" id="resText_cam0">📸 Resolution: --x--</div>
 
             <details class="camera-controls-accordion" id="cameraControls_cam0">
                 <summary>📸 Camera Properties</summary>
@@ -751,6 +752,7 @@
                 </div>
                 <img id="videoFeed_cam1" class="video-feed" alt="Live Camera Stream">
             </div>
+            <div style="text-align: right; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;" id="resText_cam1">📸 Resolution: --x--</div>
 
             <details class="camera-controls-accordion" id="cameraControls_cam1">
                 <summary>📸 Camera Properties</summary>
@@ -904,13 +906,22 @@
 
         let initialLoadDone = { "cam0": false, "cam1": false };
 
-        function updateUI(cam_id, mode, tcpPid = null, sensorName = "Unknown", displayName = null) {
+        function updateUI(cam_id, mode, tcpPid = null, sensorName = "Unknown", displayName = null, currentRes = "Unknown") {
             currentMode[cam_id] = mode;
             
             const titleEl = document.getElementById(`cameraTitle_${cam_id}`);
             if (titleEl) {
                 const finalName = displayName || `Camera ${cam_id.replace('cam', '')}`;
                 titleEl.innerText = `${finalName} (${sensorName})`;
+            }
+            
+            const resText = document.getElementById(`resText_${cam_id}`);
+            if (resText) {
+                if (mode === 'webui') {
+                    resText.innerText = `📸 Resolution: ${currentRes}`;
+                } else {
+                    resText.innerText = `📸 Resolution: (TCP Sender Object)`;
+                }
             }
             
             const videoFeed = document.getElementById(`videoFeed_${cam_id}`);
@@ -998,7 +1009,7 @@
                 
                 // Update UI for all cameras returned by the server
                 for (const [cam_id, info] of Object.entries(data)) {
-                    updateUI(cam_id, info.mode, info.tcp_pid, info.sensor_name, info.display_name);
+                    updateUI(cam_id, info.mode, info.tcp_pid, info.sensor_name, info.display_name, info.current_res);
                 }
             } catch (error) {
                 console.error("Error fetching status:", error);

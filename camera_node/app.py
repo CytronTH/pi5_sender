@@ -9,7 +9,7 @@ from flask import Flask, render_template, Response, jsonify, request, send_file
 from picamera2 import Picamera2
 import psutil
 import datetime
-
+import gc
 import logging
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -40,6 +40,14 @@ CAMERAS = {
         "lock": threading.Lock(),
         "preview_resize": True
     }
+}
+
+SENSOR_INFO = {
+    "IMX708": {"name": "Camera Module 3", "max_res": "4608x2592", "modes": ["4608x2592", "2304x1296", "1536x864"]},
+    "IMX708_WIDE": {"name": "Camera Module 3 Wide", "max_res": "4608x2592", "modes": ["4608x2592", "2304x1296", "1536x864"]},
+    "IMX477": {"name": "HQ Camera", "max_res": "4056x3040", "modes": ["4056x3040", "2028x1520", "2028x1080", "1332x990"]},
+    "IMX219": {"name": "Camera Module 2", "max_res": "3280x2464", "modes": ["3280x2464", "1920x1080", "1640x1232"]},
+    "OV5647": {"name": "Camera Module 1", "max_res": "2592x1944", "modes": ["2592x1944", "1920x1080"]}
 }
 
 # --- Helper Functions ---
@@ -110,7 +118,9 @@ def stop_picamera(cam_id):
         except Exception as e:
             print(f"Warning: Error while stopping camera {cam_id}: {e}")
         finally:
+            del cam_data["picam2"]
             cam_data["picam2"] = None
+            gc.collect()
             print(f"INFO: Picamera2 ({cam_id}) stopped and camera resource released.")
 
 def start_tcp_sender(cam_id):
@@ -238,6 +248,15 @@ def get_config(cam_id):
             config = json.load(open(cfg_path, 'r'))
             # Add runtime preview_resize state to the config for UI
             config["preview_resize"] = CAMERAS[cam_id].get("preview_resize", True)
+            
+            # Inject native sensor properties for UI
+            sensor_name = CAMERAS[cam_id].get("sensor_name", "Unknown")
+            config["sensor_info"] = SENSOR_INFO.get(sensor_name, {
+                "name": sensor_name,
+                "max_res": "Unknown",
+                "modes": []
+            })
+            
             return jsonify(config)
         else:
             return jsonify({"error": "Config file not found"}), 404
@@ -259,6 +278,10 @@ def save_config(cam_id):
         if "preview_resize" in new_config:
             CAMERAS[cam_id]["preview_resize"] = bool(new_config.pop("preview_resize"))
             print(f"INFO: Updated preview_resize for {cam_id} to {CAMERAS[cam_id]['preview_resize']}")
+            
+            # If nothing else is in the payload, return early to avoid wiping the file
+            if len(new_config) == 0:
+                return jsonify({"status": "success", "message": "Preview resize updated."})
 
         required_sections = ["tcp", "mqtt", "camera", "preprocessing", "sftp"]
         for section in required_sections:
@@ -669,7 +692,11 @@ def api_logs(cam_id):
     
     try:
         if mode == 'tcp':
-            service_name = f"camera-sender@{cam_num}.service"
+            # Check if using subprocess fallback
+            if CAMERAS[cam_id]["tcp_process"] and CAMERAS[cam_id]["tcp_process"].poll() is None:
+                service_name = "camera-app.service" # Subprocess logs go to parent
+            else:
+                service_name = f"camera-sender@{cam_num}.service"
         else:
             service_name = "camera-app.service"
             

@@ -7,7 +7,7 @@ Type=simple
 User=CURRENT_USER_PLACEHOLDER
 WorkingDirectory=CURRENT_DIR_PLACEHOLDER
 # The %i variable will be replaced by the instance name, e.g. 0 or 1
-ExecStart=/usr/bin/python3 CURRENT_DIR_PLACEHOLDER/sender.py -c CURRENT_DIR_PLACEHOLDER/configs/config_cam%i.json
+ExecStart=/usr/bin/python3 -u CURRENT_DIR_PLACEHOLDER/main.py -c CURRENT_DIR_PLACEHOLDER/configs/config_cam%i.json
 # Auto-restart is crucial for Dual Camera flexibility. 
 # If a camera is unplugged, it will die and keep retrying quietly every 10 seconds.
 Restart=always

@@ -60,17 +60,62 @@ def load_calibration(cam_id="cam0"):
             
     return config, templates
 
+def find_mark_full(img_gray, template):
+    """
+    Optimized hierarchical template matching.
+    Scales down the image and template to find an approximate match,
+    then searches a small ROI at full resolution.
+    """
+    scale = 0.25 # Downscale to 25% (16x faster search)
+    h_tmpl, w_tmpl = template.shape
+    h_img, w_img = img_gray.shape
+    
+    if h_tmpl < 40 or w_tmpl < 40:
+        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        return max_loc, max_val
+        
+    small_img = cv2.resize(img_gray, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    small_tmpl = cv2.resize(template, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    
+    res_small = cv2.matchTemplate(small_img, small_tmpl, cv2.TM_CCOEFF_NORMED)
+    _, _, _, max_loc_small = cv2.minMaxLoc(res_small)
+    
+    approx_x = int(max_loc_small[0] / scale)
+    approx_y = int(max_loc_small[1] / scale)
+    
+    margin_x = int(w_tmpl * 0.15)
+    margin_y = int(h_tmpl * 0.15)
+    
+    roi_x = max(0, approx_x - margin_x)
+    roi_y = max(0, approx_y - margin_y)
+    roi_w = min(w_img - roi_x, w_tmpl + 2 * margin_x)
+    roi_h = min(h_img - roi_y, h_tmpl + 2 * margin_y)
+    
+    roi = img_gray[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w]
+    
+    if roi.shape[0] < h_tmpl or roi.shape[1] < w_tmpl:
+        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        return max_loc, max_val
+        
+    res_full = cv2.matchTemplate(roi, template, cv2.TM_CCOEFF_NORMED)
+    _, max_val_full, _, max_loc_full = cv2.minMaxLoc(res_full)
+    
+    final_x = max_loc_full[0] + roi_x
+    final_y = max_loc_full[1] + roi_y
+    return (final_x, final_y), max_val_full
+
 def find_mark(img_gray, template, search_roi=None):
     """
     Finds a template in an image.
-    search_roi: (x, y, w, h) to limit search. If None, searches full image.
+    search_roi: (x, y, w, h) to limit search. If None, searches full image using pyramid optimization.
     Returns: (max_loc, max_val) -> ((x,y), score)
     """
     h_img, w_img = img_gray.shape
     h_tmpl, w_tmpl = template.shape
     print(f"DEBUG FIND_MARK: img={img_gray.shape}, tmpl={template.shape}", flush=True)
     
-    # Safety Check: If template is larger than image, clip it
     if h_tmpl > h_img or w_tmpl > w_img:
         print("WARNING: Template is larger than image! Clipping template...", flush=True)
         template = template[:min(h_tmpl, h_img), :min(w_tmpl, w_img)]
@@ -78,7 +123,6 @@ def find_mark(img_gray, template, search_roi=None):
 
     if search_roi:
         x, y, w, h = search_roi
-        # Ensure ROI is within bounds
         x = max(0, x)
         y = max(0, y)
         w = min(w_img - x, w)
@@ -87,21 +131,16 @@ def find_mark(img_gray, template, search_roi=None):
         roi = img_gray[y:y+h, x:x+w]
         if roi.size == 0 or roi.shape[0] < h_tmpl or roi.shape[1] < w_tmpl:
              print("WARNING: ROI too small for template. Falling back to full image search.", flush=True)
-             res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
-             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-             return max_loc, max_val
+             return find_mark_full(img_gray, template)
              
         res = cv2.matchTemplate(roi, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
         
-        # Adjust local coordinates to global
         global_x = max_loc[0] + x
         global_y = max_loc[1] + y
         return (global_x, global_y), max_val
     else:
-        res = cv2.matchTemplate(img_gray, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        return max_loc, max_val
+        return find_mark_full(img_gray, template)
 
 def main():
     parser = argparse.ArgumentParser(description="Crop wall boxes using feature-based homography.")

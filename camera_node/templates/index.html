@@ -1072,6 +1072,19 @@
 
             // Camera Section
             html += '<div class="settings-section"><h3>📷 Camera Parameters</h3>';
+            
+            if (currentConfig.sensor_info && currentConfig.sensor_info.modes && currentConfig.sensor_info.modes.length > 0) {
+                const info = currentConfig.sensor_info;
+                html += `<div style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(99, 102, 241, 0.1); border-left: 4px solid #6366f1; border-radius: 6px; font-size: 0.95rem;">
+                    <div style="margin-bottom: 0.5rem;"><strong>Sensor:</strong> <span style="color: #a5b4fc;">${info.name}</span></div>
+                    <div style="margin-bottom: 0.5rem;"><strong>Native Resolutions:</strong> <span style="color: var(--success-color);">${info.modes.join(', ')}</span></div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; font-style: italic;">
+                        * The maximum capture resolution for this sensor is ${info.max_res}.<br>
+                        * It is highly recommended to configure Default Width/Height exactly to one of these native resolutions for optimal Field of View (FoV) and alignment reliability.
+                    </div>
+                </div>`;
+            }
+
             html += createInputGroup('Display Name', currentConfig.camera?.name || '', 'text', 'camera', 'name');
             html += createInputGroup('Device ID (/dev/video*)', currentConfig.camera?.id || 0, 'number', 'camera', 'id');
             html += createInputGroup('Default Width', currentConfig.camera?.default_width || 2304, 'number', 'camera', 'default_width');

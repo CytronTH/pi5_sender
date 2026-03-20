@@ -417,6 +417,8 @@ def pre_process_worker():
                     cv2.circle(debug_img, (int(m1_cx), int(m1_cy)), 5, (0, 0, 255), -1)
                     cv2.putText(debug_img, "M1", (loc[0], loc[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
                 
+                is_single_mark = len(preproc_templates) == 1 if preproc_templates else False
+                
                 if is_single_mark:
                     # === SINGLE MARK CENTER CROP (Camera 0) ===
                     padding = preproc_config.get("padding", 50)
@@ -613,9 +615,9 @@ def pre_process_worker():
             if enable_pre_crop:
                 # Send the pre-cropped version before the small crops
                 if args.debug_align:
-                    cv2.imwrite(os.path.join(debug_out_dir, f"preproc_{base_name}_pre_crop.jpg"), pre_cropped)
-                # Currently pre_cropped is generated in Step 2.5
-                send_image(pre_cropped, image_id="pre_crop")
+                    cv2.imwrite(os.path.join(debug_out_dir, f"preproc_{base_name}_pre_crop.jpg"), final_surface)
+                # Use final_surface so Grayscale/CLAHE is applied to the pre-crop stream
+                send_image(final_surface, image_id="pre_crop")
             
             if enable_crop:
                 # Followed by all the crops (Should be 6 crops based on user config)
@@ -782,6 +784,7 @@ def main():
             print(f"INFO: Starting in MOCK mode using directory: {args.mock_dir}")
             picam2 = MockCamera(args.mock_dir)
         else:
+            print(f"DEBUG: Initializing Picamera2 with CAMERA_ID={CAMERA_ID}")
             picam2 = Picamera2(camera_num=CAMERA_ID)
             cam_config = picam2.create_preview_configuration(
                 main={'format': 'RGB888', 'size': (current_width, current_height)}

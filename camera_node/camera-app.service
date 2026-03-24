@@ -1,0 +1,14 @@
+[Unit]
+Description=Camera Node Web App API
+After=network.target network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 CURRENT_DIR_PLACEHOLDER/app.py
+WorkingDirectory=CURRENT_DIR_PLACEHOLDER
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=CURRENT_USER_PLACEHOLDER
+
+[Install]
+WantedBy=multi-user.target

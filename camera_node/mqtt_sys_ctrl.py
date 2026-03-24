@@ -5,6 +5,15 @@ import socket
 import time
 import argparse
 import paho.mqtt.client as mqtt
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -24,8 +33,8 @@ try:
     with open(args.config, 'r') as f:
         config = json.load(f)
 except FileNotFoundError:
-    print(f"ERROR: {args.config} not found. Cannot load MQTT configuration.")
-    os._exit(1)
+    logger.error(f"{args.config} not found. Cannot load MQTT configuration.")
+    sys.exit(1)
 
 MQTT_BROKER = config.get("mqtt", {}).get("broker", "localhost")
 MQTT_PORT = config.get("mqtt", {}).get("port", 1883)
@@ -54,15 +63,15 @@ def mqtt_status_publisher():
                 client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(status_payload), retain=True)
                 
         except Exception as e:
-            print(f"ERROR: Failed to publish status: {e}")
+            logger.error(f"Failed to publish status: {e}")
         time.sleep(10)
 
 def on_client_connect(client, userdata, flags, reason_code, properties):
-    print(f"INFO: System Controller connected to MQTT broker with result code {reason_code}")
+    logger.info(f"System Controller connected to MQTT broker with result code {reason_code}")
     client.subscribe(MQTT_TOPIC_CMD)
     client.subscribe(MQTT_TOPIC_SYS)
-    print(f"INFO: Subscribed to camera topic: {MQTT_TOPIC_CMD}")
-    print(f"INFO: Subscribed to system topic: {MQTT_TOPIC_SYS}")
+    logger.info(f"Subscribed to camera topic: {MQTT_TOPIC_CMD}")
+    logger.info(f"Subscribed to system topic: {MQTT_TOPIC_SYS}")
     
     # Send an initial connect status immediately
     status_payload = {"system": "online", "hostname": hostname}
@@ -78,7 +87,7 @@ def on_client_message(client, userdata, msg):
             command = payload.get('system')
             
             if command == 'restart':
-                print("WARNING: Restarting system via MQTT command...")
+                logger.warning(f"Restarting system via MQTT command...")
                 
                 # Send closing status
                 closing_payload = {"system": "restarting", "hostname": hostname}
@@ -87,7 +96,7 @@ def on_client_message(client, userdata, msg):
                 
                 os.system("sudo reboot")
             elif command == 'shutdown':
-                print("WARNING: Shutting down system via MQTT command...")
+                logger.warning(f"Shutting down system via MQTT command...")
                 
                 # Send closing status
                 closing_payload = {"system": "offline", "hostname": hostname}
@@ -99,13 +108,13 @@ def on_client_message(client, userdata, msg):
     except json.JSONDecodeError:
         pass # Ignore non-JSON messages quietly
     except Exception as e:
-        print(f"ERROR: Error handling MQTT message: {e}")
+        logger.error(f"Error handling MQTT message: {e}")
 
 import signal
 import sys
 
 def graceful_exit(signum, frame):
-    print(f"INFO: Received signal {signum}, disconnecting MQTT gracefully...")
+    logger.info(f"Received signal {signum}, disconnecting MQTT gracefully...")
     try:
         closing_payload = {"system": "offline", "hostname": hostname}
         client.publish(MQTT_TOPIC_SYS_STATUS, json.dumps(closing_payload), retain=True)
@@ -116,7 +125,7 @@ def graceful_exit(signum, frame):
     sys.exit(0)
 
 if __name__ == "__main__":
-    print(f"INFO: Starting MQTT System Controller for {hostname}")
+    logger.info(f"Starting MQTT System Controller for {hostname}")
     # Use a static client ID so reconnects cancel pending LWTs
     client_id = f"{hostname}_sys_ctrl"
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
@@ -142,7 +151,7 @@ if __name__ == "__main__":
             client.connect(MQTT_BROKER, MQTT_PORT, 60)
             break
         except Exception as e:
-            print(f"WARNING: MQTT connection failed: {e}. Retrying in 5 seconds...")
+            logger.warning(f"MQTT connection failed: {e}. Retrying in 5 seconds...")
             time.sleep(5)
             
     client.loop_forever()

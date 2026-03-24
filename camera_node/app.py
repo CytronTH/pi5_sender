@@ -11,15 +11,11 @@ import sys
 
 # Ensure cameras are not busy before any modules (like picamera2) are imported.
 # Importing picamera2 initializes the libcamera CameraManager, which caches hardware states.
-print("INFO: Stopping any background camera senders before initializing CameraManager...")
-try:
-    subprocess.run(['sudo', 'systemctl', 'stop', 'camera-sender@0.service'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['sudo', 'systemctl', 'stop', 'camera-sender@1.service'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(2)
-except Exception as e:
-    pass
+# Removed fragile sudo systemctl stops. 
+# WebUI will now act as the primary process manager.
+logger.info(f"Initializing app...")
 
-print("INFO: Pre-initializing CameraManager to enumerate cameras while they are free...", flush=True)
+logger.info(f"Pre-initializing CameraManager to enumerate cameras while they are free...", flush=True)
 try:
     import libcamera
     # We MUST save it to a variable, otherwise Python's Garbage Collector instantly destroys it,
@@ -43,6 +39,13 @@ app = Flask(__name__)
 # Base directory for config paths
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
+import sys
+src_path = os.path.join(base_dir, 'src')
+if src_path not in sys.path:
+    sys.path.append(src_path)
+from src.constants import SENSOR_INFO
+from src.config_manager import ConfigManager
+
 # Manage state for two cameras independently
 CAMERAS = {
     "cam0": {
@@ -65,14 +68,6 @@ CAMERAS = {
     }
 }
 
-SENSOR_INFO = {
-    "IMX708": {"name": "Camera Module 3", "max_res": "4608x2592", "modes": ["4608x2592", "2304x1296", "1536x864"]},
-    "IMX708_WIDE": {"name": "Camera Module 3 Wide", "max_res": "4608x2592", "modes": ["4608x2592", "2304x1296", "1536x864"]},
-    "IMX477": {"name": "HQ Camera", "max_res": "4056x3040", "modes": ["4056x3040", "2028x1520", "2028x1080", "1332x990"]},
-    "IMX219": {"name": "Camera Module 2", "max_res": "3280x2464", "modes": ["3280x2464", "1920x1080", "1640x1232"]},
-    "OV5647": {"name": "Camera Module 1", "max_res": "2592x1944", "modes": ["2592x1944", "1920x1080"]}
-}
-
 # --- Helper Functions ---
 def get_camera_settings(cam_id):
     """Load default dimensions and camera controls from the config file."""
@@ -81,12 +76,11 @@ def get_camera_settings(cam_id):
     try:
         cfg_path = CAMERAS[cam_id]["config_path"]
         if os.path.exists(cfg_path):
-            with open(cfg_path, 'r') as f:
-                config = json.load(f)
-                cam_cfg = config.get("camera", {})
-                width = cam_cfg.get("default_width", 2304)
-                height = cam_cfg.get("default_height", 1296)
-                controls = config.get("controls", {})
+            config = ConfigManager(cfg_path).get_all()
+            cam_cfg = config.get("camera", {})
+            width = cam_cfg.get("default_width", 2304)
+            height = cam_cfg.get("default_height", 1296)
+            controls = config.get("controls", {})
     except Exception as e:
         print(f"Warning: Could not read config file for {cam_id}: {e}")
     return width, height, controls
@@ -94,7 +88,7 @@ def get_camera_settings(cam_id):
 def start_picamera(cam_id):
     """Initialize and start picamera2 for WebUI streaming for a specific camera."""
     cam_data = CAMERAS[cam_id]
-    print(f"INFO: Starting Picamera2 for WebUI ({cam_id})...")
+    logger.info(f"Starting Picamera2 for WebUI ({cam_id})...")
     try:
         if cam_data["picam2"] is None:
             cam_data["picam2"] = Picamera2(camera_num=cam_data["device_id"])
@@ -111,9 +105,9 @@ def start_picamera(cam_id):
         if controls:
             try:
                 cam_data["picam2"].set_controls(controls)
-                print(f"INFO: Applied camera controls: {controls}")
+                logger.info(f"Applied camera controls: {controls}")
             except Exception as ce:
-                print(f"ERROR: Failed to apply camera controls on {cam_id}: {ce}")
+                logger.error(f"Failed to apply camera controls on {cam_id}: {ce}")
         
         # Extract Sensor Name
         raw_id = cam_data["picam2"].camera.id
@@ -123,17 +117,17 @@ def start_picamera(cam_id):
         else:
             cam_data["sensor_name"] = raw_id
             
-        print(f"INFO: Picamera2 ({cam_id}) started successfully. Sensor: {cam_data.get('sensor_name')}")
+        logger.info(f"Picamera2 ({cam_id}) started successfully. Sensor: {cam_data.get('sensor_name')}")
         return True
     except Exception as e:
-        print(f"ERROR: Failed to start Picamera2 for {cam_id}: {e}")
+        logger.error(f"Failed to start Picamera2 for {cam_id}: {e}")
         cam_data["picam2"] = None
         return False
 
 def stop_picamera(cam_id):
     """Stop and release picamera2 for a specific camera."""
     cam_data = CAMERAS[cam_id]
-    print(f"INFO: Stopping Picamera2 ({cam_id})...")
+    logger.info(f"Stopping Picamera2 ({cam_id})...")
     if cam_data["picam2"] is not None:
         try:
             cam_data["picam2"].stop()
@@ -144,7 +138,7 @@ def stop_picamera(cam_id):
             del cam_data["picam2"]
             cam_data["picam2"] = None
             gc.collect()
-            print(f"INFO: Picamera2 ({cam_id}) stopped and camera resource released.")
+            logger.info(f"Picamera2 ({cam_id}) stopped and camera resource released.")
 
 def start_tcp_sender(cam_id):
     """Start the main.py script as a subprocess or systemd service for a specific camera."""
@@ -152,41 +146,25 @@ def start_tcp_sender(cam_id):
     cfg_path = cam_data["config_path"]
     cam_num = cam_id.replace('cam', '')
     
-    # Try systemd first
-    try:
-        subprocess.run(['sudo', 'systemctl', 'start', f'camera-sender@{cam_num}.service'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"INFO: TCP Sender ({cam_id}) started via systemd.")
-        return True
-    except Exception as e:
-        print(f"Warning: systemd start failed for {cam_id}. Falling back to subprocess.")
-        
     if cam_data["tcp_process"] is None or cam_data["tcp_process"].poll() is not None:
-        print(f"INFO: Starting TCP Sender Subprocess ({cam_id}): python3 main.py -c {cfg_path}")
+        logger.info(f"Starting TCP Sender Subprocess ({cam_id}): python3 main.py -c {cfg_path}")
         try:
             cam_data["tcp_process"] = subprocess.Popen(
                 ['python3', 'main.py', '-c', cfg_path],
                 cwd=base_dir
             )
-            print(f"INFO: TCP Sender ({cam_id}) started with PID {cam_data['tcp_process'].pid}")
+            logger.info(f"TCP Sender ({cam_id}) started with PID {cam_data['tcp_process'].pid}")
             return True
         except Exception as e:
-            print(f"ERROR: Failed to start TCP Sender for {cam_id}: {e}")
+            logger.error(f"Failed to start TCP Sender for {cam_id}: {e}")
             return False
     return True
 
 def stop_tcp_sender(cam_id):
     """Terminate the main.py systemd service or subprocess if it's running."""
     cam_data = CAMERAS[cam_id]
-    cam_num = cam_id.replace('cam', '')
     
-    print(f"INFO: Stopping TCP Sender ({cam_id})...")
-    # Try systemd first
-    try:
-        subprocess.run(['sudo', 'systemctl', 'stop', f'camera-sender@{cam_num}.service'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"INFO: TCP Sender ({cam_id}) stopped via systemd. Waiting 2 seconds for V4L2 to fully unbind...")
-        time.sleep(2)
-    except Exception as e:
-        print(f"Warning: systemd stop failed for {cam_id}. Attempting to stop Subprocess directly.")
+    logger.info(f"Stopping TCP Sender ({cam_id})...")
         
     if cam_data["tcp_process"] is not None and cam_data["tcp_process"].poll() is None:
         try:
@@ -199,7 +177,7 @@ def stop_tcp_sender(cam_id):
         except Exception as e:
             print(f"Warning: Error while killing TCP Sender {cam_id}: {e}")
         finally:
-            print(f"INFO: TCP Sender Subprocess ({cam_id}) stopped.")
+            logger.info(f"TCP Sender Subprocess ({cam_id}) stopped.")
     cam_data["tcp_process"] = None
 
 # --- Camera Generator ---
@@ -239,7 +217,7 @@ def generate_frames(cam_id):
                     if ret:
                         frame_bytes = buffer.tobytes()
                 except Exception as e:
-                    print(f"ERROR: Frame capture error on {cam_id}: {e}")
+                    logger.error(f"Frame capture error on {cam_id}: {e}")
 
         if frame_bytes is None:
              time.sleep(1)
@@ -249,6 +227,31 @@ def generate_frames(cam_id):
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         
         time.sleep(0.05)
+
+def watchdog_worker():
+    """Monitors TCP sender subprocesses and restarts them if they crash while in tcp mode."""
+    while True:
+        try:
+            for cam_id, cam_data in CAMERAS.items():
+                with cam_data["lock"]:
+                    if cam_data["mode"] == 'tcp' and cam_data["tcp_process"] is not None:
+                        # Check if process has terminated unexpectedly
+                        retcode = cam_data["tcp_process"].poll()
+                        if retcode is not None:
+                            logger.warning(f"TCP Sender ({cam_id}) crashed with code {retcode}! Restarting...")
+                            cam_data["tcp_process"] = None
+                            
+            # Call outside of the lock to prevent deadlocks with start_tcp_sender
+            for cam_id, cam_data in CAMERAS.items():
+                if cam_data["mode"] == 'tcp' and cam_data["tcp_process"] is None:
+                    start_tcp_sender(cam_id)
+        except Exception as e:
+            print(f"ERROR in watchdog: {e}")
+            
+        time.sleep(5.0)
+
+# Start watchdog
+threading.Thread(target=watchdog_worker, daemon=True).start()
 
 # --- API Routes for Config ---
 @app.route('/api/config/<cam_id>', methods=['GET'])
@@ -260,7 +263,7 @@ def get_config(cam_id):
     try:
         cfg_path = CAMERAS[cam_id]["config_path"]
         if os.path.exists(cfg_path):
-            config = json.load(open(cfg_path, 'r'))
+            config = ConfigManager(cfg_path).get_all()
             # Add runtime preview_resize state to the config for UI
             config["preview_resize"] = CAMERAS[cam_id].get("preview_resize", True)
             
@@ -292,7 +295,7 @@ def save_config(cam_id):
         # Extract and update runtime preview_resize state if present
         if "preview_resize" in new_config:
             CAMERAS[cam_id]["preview_resize"] = bool(new_config.pop("preview_resize"))
-            print(f"INFO: Updated preview_resize for {cam_id} to {CAMERAS[cam_id]['preview_resize']}")
+            logger.info(f"Updated preview_resize for {cam_id} to {CAMERAS[cam_id]['preview_resize']}")
             
             # If nothing else is in the payload, return early to avoid wiping the file
             if len(new_config) == 0:
@@ -304,15 +307,14 @@ def save_config(cam_id):
                 new_config[section] = {}
 
         cfg_path = CAMERAS[cam_id]["config_path"]
-        with open(cfg_path, 'w') as f:
-            json.dump(new_config, f, indent=4)
+        ConfigManager(cfg_path).save_all(new_config)
             
-        print(f"INFO: Config file for {cam_id} updated via WebUI.")
+        logger.info(f"Config file for {cam_id} updated via WebUI.")
 
         cam_data = CAMERAS[cam_id]
         with cam_data["lock"]:
             if cam_data["mode"] == 'tcp':
-                print(f"INFO: Restarting TCP Sender {cam_id} to apply new configuration...")
+                logger.info(f"Restarting TCP Sender {cam_id} to apply new configuration...")
                 stop_tcp_sender(cam_id)
                 time.sleep(1)
                 start_tcp_sender(cam_id)
@@ -337,10 +339,7 @@ def update_camera_controls(cam_id):
         cfg_path = CAMERAS[cam_id]["config_path"]
         
         # Load existing config
-        config = {}
-        if os.path.exists(cfg_path):
-            with open(cfg_path, 'r') as f:
-                config = json.load(f)
+        config = ConfigManager(cfg_path).get_all()
                 
         # Update or create the controls namespace
         if "controls" not in config:
@@ -349,10 +348,9 @@ def update_camera_controls(cam_id):
         config["controls"].update(controls_update)
         
         # Save seamlessly without destroying stream mode
-        with open(cfg_path, 'w') as f:
-            json.dump(config, f, indent=4)
+        ConfigManager(cfg_path).save_all(config)
             
-        print(f"INFO: Camera controls for {cam_id} updated: {controls_update}")
+        logger.info(f"Camera controls for {cam_id} updated: {controls_update}")
         
         # Apply the new controls instantly if picam2 is actively streaming in WebUI
         cam_data = CAMERAS[cam_id]
@@ -360,9 +358,9 @@ def update_camera_controls(cam_id):
             if cam_data["mode"] == "webui" and cam_data["picam2"] is not None:
                 try:
                     cam_data["picam2"].set_controls(config["controls"])
-                    print(f"INFO: Applied dynamic controls to active stream.")
+                    logger.info(f"Applied dynamic controls to active stream.")
                 except Exception as ce:
-                    print(f"ERROR: Failed to apply dynamic controls on {cam_id}: {ce}")
+                    logger.error(f"Failed to apply dynamic controls on {cam_id}: {ce}")
                     
         return jsonify({"status": "success", "message": "Camera controls updated and saved."})
         
@@ -396,8 +394,7 @@ def calibrate_capture(cam_id):
             # TCP Mode - trigger via MQTT
             try:
                 cfg_path = cam_data["config_path"]
-                with open(cfg_path, 'r') as f:
-                    config = json.load(f)
+                config = ConfigManager(cfg_path).get_all()
                 
                 broker = config.get("mqtt", {}).get("broker", "localhost")
                 port = config.get("mqtt", {}).get("port", 1883)
@@ -435,8 +432,7 @@ def calibrate_wait(cam_id):
     
     try:
         cfg_path = cam_data["config_path"]
-        with open(cfg_path, 'r') as f:
-            config = json.load(f)
+        config = ConfigManager(cfg_path).get_all()
             
         broker = config.get("mqtt", {}).get("broker", "localhost")
         port = config.get("mqtt", {}).get("port", 1883)
@@ -676,10 +672,9 @@ def get_camera_display_name(cam_id):
     try:
         cfg_path = CAMERAS[cam_id]["config_path"]
         if os.path.exists(cfg_path):
-            with open(cfg_path, 'r') as f:
-                config = json.load(f)
-                custom_name = config.get("camera", {}).get("name")
-                if custom_name:
+            config = ConfigManager(cfg_path).get_all()
+            custom_name = config.get("camera", {}).get("name")
+            if custom_name:
                     display_name = custom_name
     except:
         pass

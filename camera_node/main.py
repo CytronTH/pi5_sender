@@ -181,6 +181,7 @@ def get_ram_usage():
 
 def pre_process_worker():
     """ Worker thread to process images from the queue and send them. """
+    import os, time, json
     from src.image_pipeline import ImagePipeline
     
     logger.info(f"Pre-processing worker thread started.")
@@ -196,6 +197,12 @@ def pre_process_worker():
         tcp_ip = config.get("tcp", {}).get("ip", "10.10.10.199")
         tcp_port = config.get("tcp", {}).get("port", 8080)
         tcp_sender = TCPSender(tcp_ip, tcp_port)
+        
+        # Clear any stale monitor data from previous runs to prevent ghosting
+        stale_monitor = f"/dev/shm/tcp_monitor_cam{CAMERA_ID}.json"
+        if os.path.exists(stale_monitor):
+            os.remove(stale_monitor)
+            logger.info(f"Cleared stale monitor data: {stale_monitor}")
     except Exception as e:
         print(f"CRITICAL ERROR during pipeline initialization: {e}")
         sys.exit(1)
@@ -220,8 +227,39 @@ def pre_process_worker():
             
             # Send the images sequentially
             logger.info(f"Pre-processing complete. {len(images_to_send)} images prepared for sending.")
+            
+            monitor_images = []
             for img_id, img_data in images_to_send:
-                tcp_sender.send_image(img_data, image_id=img_id, jpeg_quality=JPEG_QUALITY, width=current_width, height=current_height)
+                h_img, w_img = img_data.shape[:2]
+                tcp_sender.send_image(img_data, image_id=img_id, jpeg_quality=JPEG_QUALITY, width=w_img, height=h_img)
+                
+                # Encode for WebUI Monitor (lightweight)
+                try:
+                    ret, buffer = cv2.imencode('.jpg', img_data, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+                    if ret:
+                        import base64
+                        b64_str = base64.b64encode(buffer).decode('utf-8')
+                        monitor_images.append({
+                            "id": img_id,
+                            "data": b64_str
+                        })
+                except Exception as ignore:
+                    pass
+                    
+            if monitor_images:
+                try:
+                    import os, time, json
+                    monitor_data = {
+                        "timestamp": time.time(),
+                        "images": monitor_images
+                    }
+                    tmp_path = f"/dev/shm/tcp_monitor_cam{CAMERA_ID}.json.tmp"
+                    final_path = f"/dev/shm/tcp_monitor_cam{CAMERA_ID}.json"
+                    with open(tmp_path, "w") as f:
+                        json.dump(monitor_data, f)
+                    os.rename(tmp_path, final_path)
+                except Exception as ignore:
+                    pass
                 
             image_queue.task_done()
             
@@ -360,15 +398,18 @@ def main():
         while True:
             current_time = time.time()
             if current_time - last_status_time >= 5.0:
-                status = {
-                    'camera_id': CAMERA_ID,
-                    'cpu_temp': round(get_cpu_temperature(), 2),
-                    'ram_usage_percent': round(get_ram_usage(), 2),
-                    'cpu_usage_percent': round(get_cpu_usage(), 2),
-                    'resolution': [current_width, current_height],
-                    'camera_params': config.get("camera_params", {})
-                }
-                mqtt_handler.publish_status(status)
+                try:
+                    status = {
+                        'camera_id': CAMERA_ID,
+                        'cpu_temp': round(get_cpu_temperature(), 2),
+                        'ram_usage_percent': round(get_ram_usage(), 2),
+                        'cpu_usage_percent': round(get_cpu_usage(), 2),
+                        'resolution': [current_width, current_height],
+                        'camera_params': config.get("camera_params", {})
+                    }
+                    mqtt_handler.publish_status(status)
+                except Exception as e:
+                    logger.error(f"Failed to publish status: {e}")
                 last_status_time = current_time
 
             sftp_enabled = config.get("sftp", {}).get("enabled", False)

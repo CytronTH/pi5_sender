@@ -115,22 +115,18 @@ class ImagePipeline:
             is_single_mark = len(self.preproc_templates) == 1 if self.preproc_templates else False
             
             if is_single_mark:
-                # SINGLE MARK CENTER CROP
-                padding = self.preproc_config.get("padding", 50)
+                # SINGLE MARK CROP
                 mark_w = self.preproc_config["calibration_marks"][0].get("width", tw)
                 mark_h = self.preproc_config["calibration_marks"][0].get("height", th)
                 
-                crop_w = int(mark_w + (padding * 2))
-                crop_h = int(mark_h + (padding * 2))
-                
-                start_x = int(m1_cx - (crop_w / 2))
-                start_y = int(m1_cy - (crop_h / 2))
+                start_x = int(m1_cx - (mark_w / 2))
+                start_y = int(m1_cy - (mark_h / 2))
                 
                 h_img, w_img = frame.shape[:2]
                 start_x = max(0, start_x)
                 start_y = max(0, start_y)
-                end_x = min(w_img, start_x + crop_w)
-                end_y = min(h_img, start_y + crop_h)
+                end_x = min(w_img, start_x + mark_w)
+                end_y = min(h_img, start_y + mark_h)
                 
                 aligned_img = frame[start_y:end_y, start_x:end_x]
                 self.output_size = (end_x - start_x, end_y - start_y)

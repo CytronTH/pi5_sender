@@ -8,6 +8,10 @@ import socket
 import subprocess
 import time
 import sys
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
 # Ensure cameras are not busy before any modules (like picamera2) are imported.
 # Importing picamera2 initializes the libcamera CameraManager, which caches hardware states.
@@ -15,7 +19,7 @@ import sys
 # WebUI will now act as the primary process manager.
 logger.info(f"Initializing app...")
 
-logger.info(f"Pre-initializing CameraManager to enumerate cameras while they are free...", flush=True)
+logger.info(f"Pre-initializing CameraManager to enumerate cameras while they are free...")
 try:
     import libcamera
     # We MUST save it to a variable, otherwise Python's Garbage Collector instantly destroys it,
@@ -54,7 +58,7 @@ CAMERAS = {
         "mode": "tcp",
         "picam2": None,
         "tcp_process": None,
-        "lock": threading.Lock(),
+        "lock": threading.RLock(),
         "preview_resize": True  # Default to True for bandwidth savings
     },
     "cam1": {
@@ -63,7 +67,7 @@ CAMERAS = {
         "mode": "tcp",
         "picam2": None,
         "tcp_process": None,
-        "lock": threading.Lock(),
+        "lock": threading.RLock(),
         "preview_resize": True
     }
 }
@@ -146,19 +150,20 @@ def start_tcp_sender(cam_id):
     cfg_path = cam_data["config_path"]
     cam_num = cam_id.replace('cam', '')
     
-    if cam_data["tcp_process"] is None or cam_data["tcp_process"].poll() is not None:
-        logger.info(f"Starting TCP Sender Subprocess ({cam_id}): python3 main.py -c {cfg_path}")
-        try:
-            cam_data["tcp_process"] = subprocess.Popen(
-                ['python3', 'main.py', '-c', cfg_path],
-                cwd=base_dir
-            )
-            logger.info(f"TCP Sender ({cam_id}) started with PID {cam_data['tcp_process'].pid}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to start TCP Sender for {cam_id}: {e}")
-            return False
-    return True
+    with cam_data["lock"]:
+        if cam_data["tcp_process"] is None or cam_data["tcp_process"].poll() is not None:
+            logger.info(f"Starting TCP Sender Subprocess ({cam_id}): python3 main.py -c {cfg_path}")
+            try:
+                cam_data["tcp_process"] = subprocess.Popen(
+                    ['python3', 'main.py', '-c', cfg_path],
+                    cwd=base_dir
+                )
+                logger.info(f"TCP Sender ({cam_id}) started with PID {cam_data['tcp_process'].pid}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to start TCP Sender for {cam_id}: {e}")
+                return False
+        return True
 
 def stop_tcp_sender(cam_id):
     """Terminate the main.py systemd service or subprocess if it's running."""
@@ -498,6 +503,28 @@ def calibrate_wait(cam_id):
     except Exception as e:
         return jsonify({"error": f"MQTT listener failed: {e}"}), 500
 
+@app.route('/api/calibrate/upload/<cam_id>', methods=['POST'])
+def calibrate_upload(cam_id):
+    """Upload a custom image to act as the calibration target."""
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+        
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+        
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+        
+    try:
+        save_path = os.path.join(base_dir, "logs", f"{cam_id}_calibration_target.jpg")
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        file.save(save_path)
+        return send_file(save_path, mimetype='image/jpeg')
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/calibrate/save_alignment/<cam_id>', methods=['POST'])
 def save_alignment(cam_id):
     """Save 4 marks and 4 corners and generate templates."""
@@ -580,10 +607,6 @@ def save_alignment(cam_id):
             "calibration_corners": corners
         }
         
-        # Add padding configuration specifically for cam0
-        if cam_id == 'cam0':
-            calib_data["padding"] = data.get("padding", 50)
-        
         config_file = os.path.join(base_dir, "configs", f"{cam_id}_calibration_points.json")
         with open(config_file, 'w') as f:
             json.dump(calib_data, f, indent=4)
@@ -617,7 +640,207 @@ def save_crop(cam_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/preview_preprocess/<cam_id>', methods=['GET'])
+def preview_preprocess(cam_id):
+    import base64
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+        
+    cam_data = CAMERAS[cam_id]
+    cfg_path = cam_data["config_path"]
+    
+    # 1. Capture or load a frame
+    frame = None
+    save_path = os.path.join(base_dir, "logs", f"{cam_id}_calibration_target.jpg")
+    
+    with cam_data["lock"]:
+        if cam_data["mode"] == 'webui' and cam_data["picam2"] is not None:
+            try:
+                frame = cam_data["picam2"].capture_array()
+            except Exception as e:
+                logger.error(f"Preview capture error: {e}")
+                
+    if frame is None:
+        if os.path.exists(save_path):
+            frame = cv2.imread(save_path)
+        else:
+            return jsonify({"error": "Camera not active in WebUI and no calibration target found."}), 404
+            
+    if frame is None:
+        return jsonify({"error": "Failed to read image for preview."}), 500
+        
+    try:
+        config = ConfigManager(cfg_path).get_all()
+        prep_config = config.get("preprocessing", {})
+        enable_align = prep_config.get("enable_alignment", True)
+        enable_crop = prep_config.get("enable_box_cropping", True)
+        
+        from src.image_pipeline import ImagePipeline
+        
+        camera_num = int(cam_id.replace('cam', ''))
+        pipeline = ImagePipeline(camera_num, base_dir)
+        pipeline.load_configs(enable_align, enable_crop)
+        
+        output_images = pipeline.process_frame(frame, prep_config, debug=False)
+        
+        encoded_images = []
+        for img_id, img_data in output_images:
+            ret, buffer = cv2.imencode('.jpg', img_data, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            if ret:
+                b64_str = base64.b64encode(buffer).decode('utf-8')
+                encoded_images.append({
+                    "id": img_id,
+                    "data": b64_str
+                })
+                
+        return jsonify({
+            "status": "success",
+            "images": encoded_images
+        })
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Pipeline preview error: {e}\\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/calibrate/live_preview/<cam_id>', methods=['POST'])
+def live_preview(cam_id):
+    import base64
+    import numpy as np
+    
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+        
+    try:
+        data = request.json
+        marks = data.get("marks", [])
+        corners = data.get("corners", [])
+        regions = data.get("regions", [])
+        calib_mode = data.get("calib_mode", "align")
+        
+        save_path = os.path.join(base_dir, "logs", f"{cam_id}_calibration_target.jpg")
+        if not os.path.exists(save_path):
+            return jsonify({"error": "No calibration image captured yet."}), 404
+            
+        frame = cv2.imread(save_path)
+        if frame is None:
+            return jsonify({"error": "Failed to read calibration image."}), 500
+            
+        h_img, w_img = frame.shape[:2]
+        
+        from src.config_manager import ConfigManager
+        cam_data = CAMERAS[cam_id]
+        cfg_path = cam_data["config_path"]
+        config = ConfigManager(cfg_path).get_all()
+        prep_config = config.get("preprocessing", {})
+        
+        if calib_mode == 'align':
+            prep_config["enable_alignment"] = len(marks) > 0
+            prep_config["enable_box_cropping"] = False
+        else:
+            prep_config["enable_alignment"] = len(marks) > 0
+            prep_config["enable_box_cropping"] = len(regions) > 0
+
+        from src.image_pipeline import ImagePipeline
+        from src.image_alignment import calculate_canonical_targets
+        
+        camera_num = int(cam_id.replace('cam', ''))
+        pipeline = ImagePipeline(camera_num, base_dir)
+        
+        pipeline.preproc_config = {
+            "calibration_marks": marks,
+            "calibration_corners": corners
+        }
+        
+        templates = []
+        ref_pts = []
+        for m in marks:
+            x, y = int(m.get("x",0)), int(m.get("y",0))
+            w, h = int(m.get("width",60)), int(m.get("height",60))
+            x1, y1 = max(0, x), max(0, y)
+            x2, y2 = min(w_img, x + w), min(h_img, y + h)
+            
+            crop = frame[y1:y2, x1:x2]
+            templates.append(crop)
+            
+            cx = x + (w / 2.0)
+            cy = y + (h / 2.0)
+            m["center_x"] = cx
+            m["center_y"] = cy
+            ref_pts.append([cx, cy])
+            
+        pipeline.preproc_templates = templates
+        
+        if len(marks) > 1:
+            pipeline.target_marks, pipeline.output_size = calculate_canonical_targets(pipeline.preproc_config)
+        else:
+            pipeline.target_marks = None
+            pipeline.output_size = None
+            
+        if ref_pts:
+            pipeline.ref_mark_points = np.array(ref_pts, dtype=np.float32)
+        else:
+            pipeline.ref_mark_points = None
+            
+        pipeline.mask_config = {
+            "reference_image_size": {"width": w_img, "height": h_img},
+            "mask_regions": regions
+        }
+        
+        output_images = pipeline.process_frame(frame, prep_config, debug=False)
+        
+        encoded_images = []
+        for img_id, img_data in output_images:
+            if img_data is not None and img_data.size > 0:
+                ret, buffer = cv2.imencode('.jpg', img_data, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ret:
+                    b64_str = base64.b64encode(buffer).decode('utf-8')
+                    encoded_images.append({
+                        "id": img_id,
+                        "data": b64_str
+                    })
+        return jsonify({"status": "success", "images": encoded_images})
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Live preview error: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/tcp_monitor/<cam_id>', methods=['GET'])
+def tcp_monitor(cam_id):
+    """Reads the IPC RAM disk file to serve real-time TCP sender images."""
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+        
+    try:
+        camera_id = int(cam_id.replace('cam', ''))
+        monitor_path = f"/dev/shm/tcp_monitor_cam{camera_id}.json"
+        
+        if not os.path.exists(monitor_path):
+            return jsonify({"status": "waiting", "message": "No TCP output available yet."})
+            
+        with open(monitor_path, "r") as f:
+            monitor_data = json.load(f)
+            
+        # Check if the data is stale (e.g. older than 10 seconds)
+        # But still send the data so they can see the last processed frame
+        if time.time() - monitor_data.get("timestamp", 0) > 10.0:
+            return jsonify({"status": "stale", "message": "TCP stream appears inactive.", "data": monitor_data})
+            
+        return jsonify({"status": "success", "data": monitor_data})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # --- Routes ---
+@app.route('/monitor/<cam_id>')
+def monitor_page(cam_id):
+    """Serve the dedicated TCP Live Monitor page for a camera."""
+    if cam_id not in CAMERAS:
+        return "Invalid camera ID", 404
+    return render_template("tcp_monitor.html", cam_id=cam_id)
+
 @app.route('/api/system_stats', methods=['GET'])
 def system_stats():
     try:
@@ -701,14 +924,8 @@ def api_logs(cam_id):
     since = request.args.get('since')
     
     try:
-        if mode == 'tcp':
-            # Check if using subprocess fallback
-            if CAMERAS[cam_id]["tcp_process"] and CAMERAS[cam_id]["tcp_process"].poll() is None:
-                service_name = "camera-app.service" # Subprocess logs go to parent
-            else:
-                service_name = f"camera-sender@{cam_num}.service"
-        else:
-            service_name = "camera-app.service"
+        # We now use subprocess.Popen for TCP senders, so all logs go to camera-app.service
+        service_name = "camera-app.service"
             
         cmd = ['sudo', 'journalctl', '-u', service_name, '--no-pager', '--output=short-iso', '-n', '1000']
         if since:

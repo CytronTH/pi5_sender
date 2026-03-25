@@ -722,11 +722,15 @@
             <div class="controls">
                 <button class="btn btn-webui active" id="btnWebui_cam0" onclick="switchMode('cam0', 'webui')">WebUI Stream</button>
                 <button class="btn btn-tcp" id="btnTcp_cam0" onclick="switchMode('cam0', 'tcp')">TCP/SFTP Background Node</button>
+                <button class="btn btn-tcp" id="btnMonitor_cam0" onclick="window.open('/monitor/cam0', '_blank', 'width=900,height=700');" style="background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); margin-left: 0.5rem; display: none; padding: 0.5rem 1rem;">📡 Live Monitor</button>
                 <button class="btn btn-settings" onclick="openSettings('cam0')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
                     ⚙️ Config
                 </button>
                 <button class="btn btn-settings" onclick="openCalibration('cam0')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
                     🎯 Calibrate
+                </button>
+                <button class="btn btn-settings" onclick="previewPreprocess('cam0')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
+                    👁️ Preview Pre-process
                 </button>
                 <button class="btn btn-settings" onclick="window.open('/debug/cam0', 'debugWindow_cam0', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
                     🐛 Debug Logs
@@ -796,11 +800,15 @@
             <div class="controls">
                 <button class="btn btn-webui active" id="btnWebui_cam1" onclick="switchMode('cam1', 'webui')">WebUI Stream</button>
                 <button class="btn btn-tcp" id="btnTcp_cam1" onclick="switchMode('cam1', 'tcp')">TCP/SFTP Background Node</button>
+                <button class="btn btn-tcp" id="btnMonitor_cam1" onclick="window.open('/monitor/cam1', '_blank', 'width=900,height=700');" style="background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); margin-left: 0.5rem; display: none; padding: 0.5rem 1rem;">📡 Live Monitor</button>
                 <button class="btn btn-settings" onclick="openSettings('cam1')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
                     ⚙️ Config
                 </button>
                 <button class="btn btn-settings" onclick="openCalibration('cam1')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
                     🎯 Calibrate
+                </button>
+                <button class="btn btn-settings" onclick="previewPreprocess('cam1')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
+                    👁️ Preview Pre-process
                 </button>
                 <button class="btn btn-settings" onclick="window.open('/debug/cam1', 'debugWindow_cam1', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
                     🐛 Debug Logs
@@ -838,46 +846,61 @@
                 <div style="display: flex; gap: 0.5rem;">
                     <button class="btn btn-webui" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="captureCalibrationImage('manual')">📸 Manual Capture</button>
                     <button class="btn btn-tcp" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="captureCalibrationImage('mqtt')">📡 Wait External MQTT</button>
+                    <button class="btn btn-tcp" style="padding: 0.5rem 1rem; font-size: 0.9rem; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);" onclick="document.getElementById('uploadReferenceInput').click()">📤 Upload Image</button>
+                    <input type="file" id="uploadReferenceInput" accept="image/*" style="display: none;" onchange="uploadCalibrationImage(event)">
                     <button class="close-btn" style="margin-left: 0.5rem;" onclick="closeCalibration()">&times;</button>
                 </div>
             </div>
             
-            <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 1rem;">
+            <div class="modal-body" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 1rem; gap: 1rem;">
                 
-                <!-- Tools / Tabs -->
-                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <!-- Top: Toolbars -->
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0;">
                     
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <div class="tabs" style="margin: 0;">
-                            <div id="tabAlign" class="tab active" onclick="switchCalibTab('align')">📍 Alignment (Perspective)</div>
-                            <div id="tabCrop" class="tab" onclick="switchCalibTab('crop')">✂️ Box Cropping (ROI)</div>
+                    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; background: rgba(0,0,0,0.3); padding: 0.5rem 1rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.05);">
+                        <div class="tabs" style="margin: 0; display: flex; gap: 0.5rem;">
+                            <div id="tabAlign" class="tab active" style="padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; background: rgba(99,102,241,0.4); border: 1px solid rgba(255,255,255,0.2); font-size: 0.9rem; font-weight: 600;" onclick="switchCalibTab('align')">📍 Alignment</div>
+                            <div id="tabCrop" class="tab" style="padding: 0.4rem 0.8rem; border-radius: 8px; cursor: pointer; background: rgba(255,255,255,0.1); border: 1px solid transparent; font-size: 0.9rem; font-weight: 600;" onclick="switchCalibTab('crop')">✂️ Cropping</div>
                         </div>
                         
-                        <div id="alignOptions" style="display: none; align-items: center; gap: 1rem;">
-                            <label style="color: white; font-size: 0.9rem; cursor: pointer;">
-                                <input type="radio" name="alignStep" value="marks" checked onchange="switchAlignStep('marks')"> <span id="optMarksText">1. Draw 4 Marker Boxes</span>
+                        <div style="width: 1px; height: 2rem; background: rgba(255,255,255,0.1);"></div>
+
+                        <div id="alignOptions" style="display: flex; flex-wrap: wrap; align-items: center; gap: 1rem;">
+                            <label style="color: white; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
+                                <input type="radio" name="alignStep" value="marks" checked onchange="switchAlignStep('marks')"> <span id="optMarksText">1. Draw 4 Marks</span>
                             </label>
-                            <label id="optCornersLabel" style="color: white; font-size: 0.9rem; cursor: pointer;">
-                                <input type="radio" name="alignStep" value="corners" onchange="switchAlignStep('corners')"> 2. Click 4 True Corners
+                            <label id="optCornersLabel" style="color: white; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
+                                <input type="radio" name="alignStep" value="corners" onchange="switchAlignStep('corners')"> 2. Click 4 Corners
                             </label>
                         </div>
-                    </div>
-
-                    <div id="cam0PaddingOption" style="display: none; align-items: center; gap: 1rem; margin-top: 0.5rem; background: rgba(0,0,0,0.3); padding: 0.5rem 1rem; border-radius: 8px;">
-                        <label for="cam0CropPadding" style="color: white; font-weight: 500;">Crop Padding (px) from Mark:</label>
-                        <input type="number" id="cam0CropPadding" value="50" min="0" max="1000" style="width: 80px; padding: 0.3rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: white;">
+                        <!-- Padding option removed per user request -->
                     </div>
 
                     <div id="calibInstruction" style="background: rgba(0,0,0,0.3); padding: 0.75rem 1rem; border-radius: 8px; border-left: 4px solid var(--warning-color); font-size: 0.95rem; color: white;">
                         Step 1: Click and drag to draw exactly 4 marker boxes around the physical tracking symbols.
                     </div>
                 </div>
-
-                <!-- Canvas Area -->
-                <div style="flex: 1; min-height: 0; background: #000; border-radius: 8px; overflow: auto; display: flex; align-items: center; justify-content: center; position: relative;">
+                
+                <!-- Bottom: Split Views -->
+                <div style="flex: 1; display: flex; flex-direction: row; gap: 1rem; min-height: 0;">
+                    
+                    <!-- Left: Canvas Area -->
+                    <div style="flex: 1; min-width: 0; background: #000; border-radius: 8px; overflow: auto; display: flex; align-items: center; justify-content: center; position: relative;">
                     <canvas id="calibCanvas" style="max-width: 100%; max-height: 100%; object-fit: contain; cursor: crosshair;"></canvas>
                     <div id="calibLoading" style="position: absolute; display: none; background: rgba(0,0,0,0.7); inset: 0; align-items: center; justify-content: center; color: white;">Loading image...</div>
-                </div>
+                    </div>
+                    
+                    <!-- Right: Live Preview Panel -->
+                    <div style="flex: 1; min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; display: flex; flex-direction: column; overflow: hidden;">
+                    <div style="padding: 1rem; background: rgba(0,0,0,0.5); border-bottom: 1px solid rgba(255,255,255,0.1); border-radius: 8px 8px 0 0; text-align: center; font-weight: bold;">
+                        👁️ Live Pre-process Preview
+                    </div>
+                    <div id="livePreviewContainer" style="flex: 1; padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;">
+                        <div style="color: var(--text-muted); text-align: center; font-size: 0.9rem; margin-top: 2rem;" id="livePreviewDefaultText">
+                            Draw marks or crops on the canvas to see the real-time processing result here.
+                        </div>
+                    </div>
+                </div> <!-- END Bottom: Split Views -->
 
             </div>
             
@@ -890,6 +913,21 @@
             </div>
         </div>
     </div>
+
+    <!-- Pre-process Preview Modal -->
+    <div class="modal" id="previewModal">
+        <div class="modal-content" style="max-width: 90vw; max-height: 90vh;">
+            <div class="modal-header" style="background: rgba(0,0,0,0.5);">
+                <h2>👁️ Pre-process Preview</h2>
+                <button class="close-btn" onclick="document.getElementById('previewModal').style.display='none'">&times;</button>
+            </div>
+            <div class="modal-body" id="previewBody" style="overflow-y: auto; text-align: center; background: #000; padding: 1rem;">
+                <!-- Images injected here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Moved TCP Monitor to Dedicated View (/monitor/camX) -->
 
     <script>
         // Use Javascript Fetch API to talk to backend
@@ -935,12 +973,15 @@
             if (mode === 'webui') {
                 btnWebui.classList.add('active');
                 btnTcp.classList.remove('active');
-                statusBanner.className = 'status-banner';
+                statusBanner.className = 'status-banner webui-mode';
                 statusText.innerText = "WebUI Live Stream (Active)";
                 pidText.innerText = "";
                 placeholderText.style.display = 'none';
                 videoFeed.style.display = 'block';
                 
+                const btnMonitor = document.getElementById(`btnMonitor_${cam_id}`);
+                if (btnMonitor) btnMonitor.style.display = 'none';
+
                 const currentUrl = videoFeed.src || "";
                 
                 if (!initialLoadDone[cam_id] || !currentUrl.includes(`/video_feed/${cam_id}`)) {
@@ -955,6 +996,9 @@
                 pidText.innerText = tcpPid ? `PID: ${tcpPid}` : "Running";
                 videoFeed.style.display = 'none';
                 
+                const btnMonitor = document.getElementById(`btnMonitor_${cam_id}`);
+                if (btnMonitor) btnMonitor.style.display = 'inline-block';
+
                 // Instead of setting src = "", which browsers resolve to current URL, 
                 // just clear attribute to stop fetching
                 videoFeed.removeAttribute('src'); 
@@ -1009,6 +1053,7 @@
                 
                 // Update UI for all cameras returned by the server
                 for (const [cam_id, info] of Object.entries(data)) {
+                    currentMode[cam_id] = info.mode;
                     updateUI(cam_id, info.mode, info.tcp_pid, info.sensor_name, info.display_name, info.current_res);
                 }
             } catch (error) {
@@ -1435,14 +1480,15 @@
             if (cam_id === 'cam0') {
                 document.getElementById('optMarksText').innerText = "1. Draw 1 Marker Box";
                 document.getElementById('optCornersLabel').style.display = 'none'; // No corners for cam0
-                document.getElementById('cam0PaddingOption').style.display = 'flex';
             } else {
                 document.getElementById('optMarksText').innerText = "1. Draw 2 Marker Boxes";
                 document.getElementById('optCornersLabel').style.display = 'inline';
-                document.getElementById('cam0PaddingOption').style.display = 'none';
             }
             // Reset to marks step
             document.querySelector('input[name="alignStep"][value="marks"]').checked = true;
+            
+            // Reset right panel text
+            document.getElementById('livePreviewContainer').innerHTML = '<div style="color: var(--text-muted); text-align: center; font-size: 0.9rem; margin-top: 2rem;" id="livePreviewDefaultText">Draw marks or crops on the canvas to see the real-time processing result here.</div>';
             
             switchCalibTab('align');
             await captureCalibrationImage();
@@ -1458,12 +1504,16 @@
         function switchCalibTab(mode) {
             calibMode = mode;
             document.getElementById('tabAlign').style.background = mode === 'align' ? 'rgba(99, 102, 241, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            document.getElementById('tabAlign').style.border = mode === 'align' ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent';
+            
             document.getElementById('tabCrop').style.background = mode === 'crop' ? 'rgba(99, 102, 241, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            document.getElementById('tabCrop').style.border = mode === 'crop' ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent';
             
             document.getElementById('alignOptions').style.display = mode === 'align' ? 'flex' : 'none';
             
             switchAlignStep(document.querySelector('input[name="alignStep"]:checked').value);
             redrawCanvas();
+            scheduleLivePreview();
         }
 
         function switchAlignStep(step) {
@@ -1526,14 +1576,105 @@
             }
         }
 
+        async function uploadCalibrationImage(event) {
+            const file = event.target.files[0];
+            if (!file || !calibCamId) return;
+            
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            calibLoading.style.display = 'flex';
+            calibLoading.innerText = "Uploading...";
+            
+            try {
+                const response = await fetch(`/api/calibrate/upload/${calibCamId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || "Upload failed");
+                }
+                
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                
+                calibTargetImg.onload = () => {
+                    calibCanvas.width = calibTargetImg.width;
+                    calibCanvas.height = calibTargetImg.height;
+                    
+                    alignMarks = [];
+                    alignCorners = [];
+                    cropRegions = [];
+                    currentRect = null;
+                    
+                    redrawCanvas();
+                    calibLoading.style.display = 'none';
+                    URL.revokeObjectURL(url);
+                    
+                    // Trigger live preview update
+                    if (calibMode === 'align') {
+                        scheduleLivePreview();
+                    }
+                };
+                calibTargetImg.src = url;
+            } catch (e) {
+                alert("Error uploading image: " + e.message);
+                calibLoading.style.display = 'none';
+            } finally {
+                event.target.value = ''; // Reset file input
+            }
+        }
+
         function redrawCanvas() {
             if (!calibTargetImg.src) return;
             
             ctx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
             ctx.drawImage(calibTargetImg, 0, 0);
             
-            // Draw standard config references? Only if we fetched them. 
-            // For now, just draw what user is making.
+            // --- Draw Helper Grid ---
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            ctx.lineWidth = 1;
+            const gridSize = 50;
+            
+            // Draw Vertical lines
+            for (let x = 0; x < calibCanvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, calibCanvas.height);
+                ctx.stroke();
+                if (x % 200 === 0 && x > 0) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.font = '14px Arial';
+                    ctx.fillText(x.toString(), x + 5, 20);
+                }
+            }
+            
+            // Draw Horizontal lines
+            for (let y = 0; y < calibCanvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(calibCanvas.width, y);
+                ctx.stroke();
+                if (y % 200 === 0 && y > 0) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.font = '14px Arial';
+                    ctx.fillText(y.toString(), 5, y + 16);
+                }
+            }
+            
+            // Draw Center Crosshair
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            ctx.beginPath();
+            ctx.moveTo(calibCanvas.width / 2, 0);
+            ctx.lineTo(calibCanvas.width / 2, calibCanvas.height);
+            ctx.moveTo(0, calibCanvas.height / 2);
+            ctx.lineTo(calibCanvas.width, calibCanvas.height / 2);
+            ctx.stroke();
+            ctx.restore();
+            // --- End Helper Grid ---
             
             // Draw Alignment Marks (Now Boxes)
             if (calibMode === 'align' || alignMarks.length > 0) {
@@ -1676,6 +1817,7 @@
             }
             currentRect = null;
             redrawCanvas();
+            scheduleLivePreview();
         });
         
         calibCanvas.addEventListener('mouseleave', () => {
@@ -1694,6 +1836,7 @@
                 cropRegions = [];
             }
             redrawCanvas();
+            scheduleLivePreview();
         }
 
         function undoCalibration() {
@@ -1704,6 +1847,7 @@
                 cropRegions.pop();
             }
             redrawCanvas();
+            scheduleLivePreview();
         }
 
         async function saveCalibration() {
@@ -1744,8 +1888,7 @@
                     
                     const payload = {
                         marks: alignMarks,
-                        corners: finalCorners,
-                        padding: parseInt(document.getElementById('cam0CropPadding').value) || 50
+                        corners: finalCorners
                     };
                     
                     const res = await fetch(`/api/calibrate/save_alignment/${calibCamId}`, {
@@ -1786,6 +1929,64 @@
                 alert("Failed to reach server: " + e.message);
             }
             btn.innerText = origText;
+        }
+
+        let livePreviewTimer = null;
+        function scheduleLivePreview() {
+            if (livePreviewTimer) clearTimeout(livePreviewTimer);
+            livePreviewTimer = setTimeout(fetchLivePreview, 500);
+        }
+
+        async function fetchLivePreview() {
+            if (!calibCamId || !calibTargetImg.src) return;
+            const container = document.getElementById('livePreviewContainer');
+            
+            // If empty, reset
+            if (alignMarks.length === 0 && cropRegions.length === 0 && calibMode === 'align') {
+                container.innerHTML = '<div style="color: var(--text-muted); text-align: center; font-size: 0.9rem; margin-top: 2rem;">Draw marks or crops on the canvas to see the real-time processing result here.</div>';
+                return;
+            }
+            
+            container.innerHTML = '<div style="text-align: center; margin-top: 2rem;"><div class="spinner" style="width: 30px; height: 30px; margin: 0 auto; border-width: 3px;"></div><div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem;">Processing...</div></div>';
+            
+            try {
+                let finalCorners = alignCorners;
+                if (alignCorners.length === 0 && calibCamId !== 'cam0') {
+                    finalCorners = alignMarks.map(m => ({
+                        x: Math.round(m.x + m.width / 2),
+                        y: Math.round(m.y + m.height / 2)
+                    }));
+                }
+                
+                const payload = {
+                    marks: alignMarks,
+                    corners: finalCorners,
+                    regions: cropRegions,
+                    calib_mode: calibMode
+                };
+                
+                const res = await fetch(`/api/calibrate/live_preview/${calibCamId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    let html = '';
+                    data.images.forEach(img => {
+                        html += `<div>
+                            <div style="color: #a855f7; font-weight: 600; font-size: 0.8rem; margin-bottom: 0.3rem;">${img.id}</div>
+                            <img src="data:image/jpeg;base64,${img.data}" style="max-width: 100%; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2);">
+                        </div>`;
+                    });
+                    container.innerHTML = html || '<div style="color: var(--text-muted); text-align: center; font-size: 0.9rem;">No output images generated.</div>';
+                } else {
+                    container.innerHTML = `<div style="color: var(--danger-color); text-align: center; font-size: 0.9rem; margin-top: 2rem;">Error: ${data.error}</div>`;
+                }
+            } catch (e) {
+                container.innerHTML = `<div style="color: var(--danger-color); text-align: center; font-size: 0.9rem; margin-top: 2rem;">Failed to fetch live preview.</div>`;
+            }
         }
 
         // Initialize UI on load
@@ -1856,6 +2057,52 @@
         window.onclick = function(event) {
             if (event.target == settingsModal) {
                 closeSettings();
+            }
+            if (event.target == document.getElementById('previewModal')) {
+                document.getElementById('previewModal').style.display = 'none';
+            }
+        }
+        
+        // --- Pre-process Preview Logic ---
+
+        async function previewPreprocess(cam_id) {
+            loadingOverlay.classList.add('active');
+            document.querySelector('#loadingOverlay h2').innerText = 'Generating Preview...';
+            document.querySelector('#loadingOverlay p').innerText = 'Processing frame through pipeline...';
+            
+            try {
+                const response = await fetch(`/api/preview_preprocess/${cam_id}`);
+                const data = await response.json();
+                
+                loadingOverlay.classList.remove('active');
+                
+                // Reset generic overlay texts
+                document.querySelector('#loadingOverlay h2').innerText = 'Switching Mode...';
+                document.querySelector('#loadingOverlay p').innerText = 'Please wait while the camera resource is allocated.';
+                
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                let html = '<div style="display: flex; flex-direction: column; gap: 2rem; max-width: 800px; margin: 0 auto;">';
+                data.images.forEach(img => {
+                    html += `<div>
+                        <h4 style="color: #a855f7; margin-bottom: 0.5rem; text-align: left; background: rgba(0,0,0,0.5); padding: 0.5rem; border-radius: 4px;">${img.id}</h4>
+                        <img src="data:image/jpeg;base64,${img.data}" style="max-width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
+                    </div>`;
+                });
+                html += '</div>';
+                
+                document.getElementById('previewBody').innerHTML = html;
+                document.getElementById('previewModal').style.display = 'flex';
+                
+            } catch (err) {
+                loadingOverlay.classList.remove('active');
+                alert('Fetch failed: ' + err.message);
+                
+                document.querySelector('#loadingOverlay h2').innerText = 'Switching Mode...';
+                document.querySelector('#loadingOverlay p').innerText = 'Please wait while the camera resource is allocated.';
             }
         }
     </script>

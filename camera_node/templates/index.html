@@ -1694,6 +1694,21 @@
             }
             // Draw Alignment Corners
             if (calibMode === 'align' || alignCorners.length > 0) {
+                // Draw connecting lines first so they appear behind the corner markers
+                if (alignCorners.length > 1) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(0, 191, 255, 0.6)'; // Semi-transparent blue for lines
+                    ctx.lineWidth = 2;
+                    ctx.moveTo(alignCorners[0].x, alignCorners[0].y);
+                    for (let i = 1; i < alignCorners.length; i++) {
+                        ctx.lineTo(alignCorners[i].x, alignCorners[i].y);
+                    }
+                    if (alignCorners.length === 4) {
+                        ctx.closePath(); // Connect 4th point back to the 1st point
+                    }
+                    ctx.stroke();
+                }
+
                 ctx.fillStyle = 'rgba(0, 191, 255, 0.8)'; // Deep Sky Blue for corners
                 ctx.font = '30px Arial';
                 alignCorners.forEach((pt, idx) => {

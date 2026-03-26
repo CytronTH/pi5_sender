@@ -700,8 +700,91 @@ def preview_preprocess(cam_id):
         
     except Exception as e:
         import traceback
-        logger.error(f"Pipeline preview error: {e}\\n{traceback.format_exc()}")
+        logger.error(f"Pipeline preview error: {e}\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/batch_test/<cam_id>', methods=['POST'])
+def batch_test(cam_id):
+    import base64
+    import numpy as np
+    from src.image_pipeline import ImagePipeline
+    from src.tcp_sender import TCPSender
+    from src.config_manager import ConfigManager
+    
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+        
+    if 'images' not in request.files:
+        return jsonify({"error": "No images provided"}), 400
+        
+    files = request.files.getlist('images')
+    if not files:
+        return jsonify({"error": "Empty file list"}), 400
+        
+    cam_data = CAMERAS[cam_id]
+    cfg_path = cam_data["config_path"]
+    config = ConfigManager(cfg_path).get_all()
+    
+    prep_config = config.get("preprocessing", {})
+    enable_align = prep_config.get("enable_alignment", True)
+    enable_crop = prep_config.get("enable_box_cropping", True)
+    
+    # Init Pipeline
+    camera_num = int(cam_id.replace('cam', ''))
+    pipeline = ImagePipeline(camera_num, base_dir)
+    pipeline.load_configs(enable_align, enable_crop)
+    
+    # TCP Sender Connection
+    tcp_config = config.get("tcp", {})
+    tcp_ip = tcp_config.get("ip", "10.10.10.199")
+    tcp_port = tcp_config.get("port", 8080)
+    sender = TCPSender(tcp_ip, tcp_port)
+    sender.connect()
+    
+    results = []
+    
+    try:
+        for file in files:
+            if file.filename == '':
+                continue
+                
+            file_bytes = np.frombuffer(file.read(), np.uint8)
+            frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+            
+            if frame is None:
+                results.append({"filename": file.filename, "error": "Failed to decode image"})
+                continue
+                
+            try:
+                output_images = pipeline.process_frame(frame, prep_config, debug=False, mock_name=file.filename, disable_clahe=False)
+                
+                encoded_images = []
+                for img_id, img_data in output_images:
+                    if img_data is not None and img_data.size > 0:
+                        # 1. Send via TCP
+                        h_img, w_img = img_data.shape[:2]
+                        sender.send_image(img_data, image_id=img_id, jpeg_quality=90, width=w_img, height=h_img)
+                        
+                        # 2. Encode Base64 for WebUI
+                        ret, buffer = cv2.imencode('.jpg', img_data, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                        if ret:
+                            b64_str = base64.b64encode(buffer).decode('utf-8')
+                            encoded_images.append({
+                                "id": img_id,
+                                "data": b64_str
+                            })
+                
+                results.append({"filename": file.filename, "images": encoded_images})
+            except Exception as e:
+                results.append({"filename": file.filename, "error": str(e)})
+                
+    except Exception as e:
+        logger.error(f"Batch test error: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        sender.disconnect()
+        
+    return jsonify({"status": "success", "results": results})
 
 @app.route('/api/calibrate/live_preview/<cam_id>', methods=['POST'])
 def live_preview(cam_id):

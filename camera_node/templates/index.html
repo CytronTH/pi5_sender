@@ -732,6 +732,9 @@
                 <button class="btn btn-settings" onclick="previewPreprocess('cam0')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
                     👁️ Preview Pre-process
                 </button>
+                <button class="btn btn-settings" onclick="openBatchTest('cam0')" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4);">
+                    🧪 Batch Test
+                </button>
                 <button class="btn btn-settings" onclick="window.open('/debug/cam0', 'debugWindow_cam0', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
                     🐛 Debug Logs
                 </button>
@@ -810,12 +813,40 @@
                 <button class="btn btn-settings" onclick="previewPreprocess('cam1')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
                     👁️ Preview Pre-process
                 </button>
+                <button class="btn btn-settings" onclick="openBatchTest('cam1')" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4);">
+                    🧪 Batch Test
+                </button>
                 <button class="btn btn-settings" onclick="window.open('/debug/cam1', 'debugWindow_cam1', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
                     🐛 Debug Logs
                 </button>
             </div>
         </div>
 
+    </div>
+    
+    <!-- Batch Test Studio Modal -->
+    <div class="modal" id="batchTestModal">
+        <div class="modal-content" style="max-width: 90vw; height: 90vh;">
+            <div class="modal-header">
+                <h2 id="batchTestTitle">🧪 Batch Test Studio</h2>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div id="batchLoading" style="display: none; color: var(--warning-color); font-weight: bold; margin-right: 1rem;">⚙️ Processing & Sending via TCP...</div>
+                    <button class="btn btn-webui" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="document.getElementById('batchFileInput').click()">📤 Select Multiple Images</button>
+                    <input type="file" id="batchFileInput" accept="image/*" multiple style="display: none;" onchange="runBatchTest(event)">
+                    <button class="close-btn" style="margin-left: 0.5rem;" onclick="closeBatchTest()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 2rem;">
+                <div id="batchResultsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem;">
+                    <!-- Results will be injected here -->
+                    <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 3rem;">
+                        <span style="font-size: 3rem; opacity: 0.5;">🧪</span><br><br>
+                        Upload multiple images to test how well your calibration templates perform on different samples.<br>
+                        Processed images will also be instantly transmitted via TCP to the destination receiver!
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     
     <!-- Settings Modal -->
@@ -1323,7 +1354,7 @@
             debouncedSaveCameraControls(cam_id);
         }
         
-        function updateFocusMode(cam_id, modeVal) {
+        function updateFocusMode(cam_id, modeVal, isInit = false) {
             const mode = parseInt(modeVal);
             currentCamControls[cam_id]['AfMode'] = mode; // 2=Auto, 0=Manual
             
@@ -1344,14 +1375,18 @@
                  slider.style.display = 'block';
                  valSpan.style.display = 'block';
                  if (lockBtn) lockBtn.style.display = 'none';
-                 currentCamControls[cam_id]['LensPosition'] = parseFloat(slider.value);
+                 if (!isInit) {
+                     currentCamControls[cam_id]['LensPosition'] = parseFloat(slider.value);
+                 }
             } else {
                  slider.style.display = 'none';
                  valSpan.style.display = 'none';
                  if (lockBtn) lockBtn.style.display = 'block';
             }
             
-            debouncedSaveCameraControls(cam_id);
+            if (!isInit) {
+                debouncedSaveCameraControls(cam_id);
+            }
         }
 
         function updatePreviewResize(cam_id, isEnabled) {
@@ -1421,7 +1456,7 @@
                     if (config.controls.AfMode !== undefined) {
                          const fMode = document.getElementById(`focusMode_${cam_id}`);
                          fMode.value = config.controls.AfMode;
-                         updateFocusMode(cam_id, config.controls.AfMode); // Trigger UI change
+                         updateFocusMode(cam_id, config.controls.AfMode, true); // Trigger UI change
                          
                          // Re-apply locked state if previously saved
                          if (config.controls.AfPause === 2 && config.controls.AfMode !== 0) {
@@ -2118,6 +2153,91 @@
                 
                 document.querySelector('#loadingOverlay h2').innerText = 'Switching Mode...';
                 document.querySelector('#loadingOverlay p').innerText = 'Please wait while the camera resource is allocated.';
+            }
+        }
+        
+        let batchCamId = null;
+        function openBatchTest(cam_id) {
+            batchCamId = cam_id;
+            document.getElementById('batchTestTitle').innerText = `🧪 Batch Test Studio (${cam_id.toUpperCase()})`;
+            document.getElementById('batchResultsGrid').innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 3rem;">
+                        <span style="font-size: 3rem; opacity: 0.5;">🧪</span><br><br>
+                        Upload multiple images to test how well your calibration templates perform on different samples.<br>
+                        Processed images will also be instantly transmitted via TCP to the destination receiver!
+                    </div>`;
+            document.getElementById('batchTestModal').style.display = 'flex';
+        }
+
+        function closeBatchTest() {
+            document.getElementById('batchTestModal').style.display = 'none';
+            batchCamId = null;
+        }
+
+        async function runBatchTest(event) {
+            const files = event.target.files;
+            if (!files.length || !batchCamId) return;
+
+            const formData = new FormData();
+            for (let i = 0; i < files.length; i++) {
+                formData.append('images', files[i]);
+            }
+
+            const loading = document.getElementById('batchLoading');
+            const grid = document.getElementById('batchResultsGrid');
+            loading.style.display = 'block';
+            grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">⚙️ Processing images and sending via TCP... please wait.</div>';
+
+            try {
+                const response = await fetch(`/api/batch_test/${batchCamId}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.error || "Batch test failed.");
+                }
+                
+                const data = await response.json();
+                grid.innerHTML = '';
+                
+                if (data.results && data.results.length > 0) {
+                    data.results.forEach(res => {
+                        const card = document.createElement('div');
+                        card.style.background = 'rgba(0,0,0,0.3)';
+                        card.style.borderRadius = '12px';
+                        card.style.padding = '1rem';
+                        card.style.border = '1px solid rgba(255,255,255,0.1)';
+                        
+                        let html = `<h4 style="margin-bottom: 0.5rem; word-break: break-all; color: var(--success-color);">${res.filename}</h4>`;
+                        
+                        if (res.error) {
+                            html += `<div style="color: var(--danger-color); padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px;">❌ ${res.error}</div>`;
+                        } else if (res.images) {
+                            html += `<div style="display: flex; flex-direction: column; gap: 0.5rem;">`;
+                            res.images.forEach(img => {
+                                html += `
+                                    <div style="position: relative;">
+                                        <div style="position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,0.8); color: white; padding: 2px 6px; font-size: 0.75rem; border-radius: 4px;">${img.id}</div>
+                                        <img src="data:image/jpeg;base64,${img.data}" style="width: 100%; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2);">
+                                    </div>`;
+                            });
+                            html += `</div>`;
+                            html += `<p style="font-size: 0.8rem; color: #a855f7; margin-top: 0.5rem;">✅ Sent over TCP</p>`;
+                        }
+                        card.innerHTML = html;
+                        grid.appendChild(card);
+                    });
+                } else {
+                    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted);">No results returned.</div>';
+                }
+                
+            } catch (error) {
+                grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--danger-color); padding: 2rem;">Error: ${error.message}</div>`;
+            } finally {
+                loading.style.display = 'none';
+                event.target.value = ''; // reset file input
             }
         }
     </script>

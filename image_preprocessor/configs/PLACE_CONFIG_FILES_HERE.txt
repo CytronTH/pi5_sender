@@ -1,0 +1,14 @@
+Place calibration config files in this directory.
+
+Required files (copy from pi5_sender/camera_node/configs/):
+  - cam0_calibration_points.json
+  - cam1_calibration_points.json   (if using cam1)
+  - cam0_crop_regions.json         (if using box cropping)
+  - cam1_crop_regions.json         (if using box cropping for cam1)
+
+Required template images (copy from pi5_sender/camera_node/configs/templates/):
+  - templates/cam0_mark0.jpg
+  - templates/cam1_mark0.jpg       (if using cam1)
+  - templates/cam1_mark1.jpg       (if cam1 uses 2 marks)
+
+See README.md for scp/copy instructions.

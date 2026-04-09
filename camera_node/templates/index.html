@@ -659,168 +659,92 @@
 
     <!-- Dual Camera Grid -->
     <div class="container dual-grid">
-        
-        <!-- Camera 0 Panel -->
+        <!-- Camera Macro Definition -->
+        {% macro render_camera_card(cam_id, default_title) %}
         <div class="card">
-            <h2 id="cameraTitle_cam0" style="text-align: center; margin-bottom: 1rem;">Camera 0</h2>
-            <div class="status-banner" id="statusBanner_cam0">
+            <h2 id="cameraTitle_{{ cam_id }}" style="text-align: center; margin-bottom: 1rem;">{{ default_title }}</h2>
+            <div class="status-banner" id="statusBanner_{{ cam_id }}">
                 <div class="status-indicator">
-                    <div class="dot" id="statusDot_cam0"></div>
-                    <span id="statusText_cam0">Loading...</span>
+                    <div class="dot" id="statusDot_{{ cam_id }}"></div>
+                    <span id="statusText_{{ cam_id }}">Loading...</span>
                 </div>
-                <div style="font-size: 0.9rem; color: var(--text-muted);" id="pidText_cam0"></div>
+                <div style="font-size: 0.9rem; color: var(--text-muted);" id="pidText_{{ cam_id }}"></div>
             </div>
 
-            <div class="video-wrapper" id="videoWrapper_cam0">
-                <div class="placeholder-text" id="placeholderText_cam0">
+            <div class="video-wrapper" id="videoWrapper_{{ cam_id }}">
+                <div class="placeholder-text" id="placeholderText_{{ cam_id }}">
                     <span class="placeholder-icon">📷</span>
                     <span>Camera is allocated to TCP Sender<br>Live Stream is paused on WebUI.</span>
                 </div>
-                <img id="videoFeed_cam0" class="video-feed" alt="Live Camera Stream">
+                <img id="videoFeed_{{ cam_id }}" class="video-feed" alt="Live Camera Stream">
             </div>
-            <div style="text-align: right; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;" id="resText_cam0">📸 Resolution: --x--</div>
+            <div style="text-align: right; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;" id="resText_{{ cam_id }}">📸 Resolution: --x--</div>
 
-            <details class="camera-controls-accordion" id="cameraControls_cam0">
+            <details class="camera-controls-accordion" id="cameraControls_{{ cam_id }}">
                 <summary>📸 Camera Properties</summary>
                 <div class="controls-panel">
                     <div class="slider-group">
-                        <label>Shutter Speed (us) <span id="shutterVal_cam0">10000</span></label>
-                        <input type="range" id="shutter_cam0" min="1000" max="60000" step="500" value="10000" oninput="updateCamControl('cam0', 'ExposureTime', this.value)">
+                        <label>Shutter Speed (us) <span id="shutterVal_{{ cam_id }}">10000</span></label>
+                        <input type="range" id="shutter_{{ cam_id }}" min="1000" max="60000" step="500" value="10000" oninput="updateCamControl('{{ cam_id }}', 'ExposureTime', this.value)">
                     </div>
                     <div class="slider-group">
-                        <label>ISO Gain <span id="isoVal_cam0">2.0</span></label>
-                        <input type="range" id="iso_cam0" min="1.0" max="16.0" step="0.1" value="2.0" oninput="updateCamControl('cam0', 'AnalogueGain', this.value)">
+                        <label>ISO Gain <span id="isoVal_{{ cam_id }}">2.0</span></label>
+                        <input type="range" id="iso_{{ cam_id }}" min="1.0" max="16.0" step="0.1" value="2.0" oninput="updateCamControl('{{ cam_id }}', 'AnalogueGain', this.value)">
                     </div>
                     <div class="slider-group">
-                        <label>White Balance (K) <span id="wbVal_cam0">Auto</span></label>
-                        <input type="range" id="wb_cam0" min="2000" max="10000" step="100" value="5000" oninput="updateWbTemp('cam0', this.value)">
-                        <button class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; margin-top: 0.2rem; width: fit-content; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);" onclick="updateWbTemp('cam0', 'auto')">Auto WB</button>
+                        <label>White Balance (K) <span id="wbVal_{{ cam_id }}">Auto</span></label>
+                        <input type="range" id="wb_{{ cam_id }}" min="2000" max="10000" step="100" value="5000" oninput="updateWbTemp('{{ cam_id }}', this.value)">
+                        <button class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; margin-top: 0.2rem; width: fit-content; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);" onclick="updateWbTemp('{{ cam_id }}', 'auto')">Auto WB</button>
                     </div>
                     <div class="slider-group">
                         <label>Focus</label>
                         <div style="display: flex; gap: 10px; align-items: center;">
-                            <select id="focusMode_cam0" onchange="updateFocusMode('cam0', this.value)" style="flex: 1;">
+                            <select id="focusMode_{{ cam_id }}" onchange="updateFocusMode('{{ cam_id }}', this.value)" style="flex: 1;">
                                 <option value="2">Autofocus</option>
                                 <option value="0">Manual</option>
                             </select>
-                            <button id="focusLockBtn_cam0" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; background: rgba(255,165,0,0.2); border: 1px solid rgba(255,165,0,0.5); display: none;" onclick="toggleAfLock('cam0')">Lock AF</button>
-                            <input type="range" id="focusSlider_cam0" style="flex: 2; display: none;" min="0.0" max="10.0" step="0.1" value="0.0" oninput="updateCamControl('cam0', 'LensPosition', this.value)">
-                            <span id="focusVal_cam0" style="display: none; width: 30px; text-align: right;">0.0</span>
+                            <button id="focusLockBtn_{{ cam_id }}" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; background: rgba(255,165,0,0.2); border: 1px solid rgba(255,165,0,0.5); display: none;" onclick="toggleAfLock('{{ cam_id }}')">Lock AF</button>
+                            <input type="range" id="focusSlider_{{ cam_id }}" style="flex: 2; display: none;" min="0.0" max="10.0" step="0.1" value="0.0" oninput="updateCamControl('{{ cam_id }}', 'LensPosition', this.value)">
+                            <span id="focusVal_{{ cam_id }}" style="display: none; width: 30px; text-align: right;">0.0</span>
                         </div>
                     </div>
                     <div class="slider-group">
                         <label>WebUI Preview Compression</label>
                         <label class="toggle-switch">
-                            <input type="checkbox" id="previewResize_cam0" onchange="updatePreviewResize('cam0', this.checked)">
+                            <input type="checkbox" id="previewResize_{{ cam_id }}" onchange="updatePreviewResize('{{ cam_id }}', this.checked)">
                             <span class="slider"></span>
                         </label>
                     </div>
-                    <div id="saveStatus_cam0" style="color: var(--success-color); font-size: 0.8rem; text-align: right; margin-top: 0.5rem; min-height: 1.2rem;"></div>
+                    <div id="saveStatus_{{ cam_id }}" style="color: var(--success-color); font-size: 0.8rem; text-align: right; margin-top: 0.5rem; min-height: 1.2rem;"></div>
                 </div>
             </details>
 
             <div class="controls">
-                <button class="btn btn-webui active" id="btnWebui_cam0" onclick="switchMode('cam0', 'webui')">WebUI Stream</button>
-                <button class="btn btn-tcp" id="btnTcp_cam0" onclick="switchMode('cam0', 'tcp')">TCP/SFTP Background Node</button>
-                <button class="btn btn-tcp" id="btnMonitor_cam0" onclick="window.open('/monitor/cam0', '_blank', 'width=900,height=700');" style="background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); margin-left: 0.5rem; display: none; padding: 0.5rem 1rem;">📡 Live Monitor</button>
-                <button class="btn btn-settings" onclick="openSettings('cam0')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                <button class="btn btn-webui active" id="btnWebui_{{ cam_id }}" onclick="switchMode('{{ cam_id }}', 'webui')">WebUI Stream</button>
+                <button class="btn btn-tcp" id="btnTcp_{{ cam_id }}" onclick="switchMode('{{ cam_id }}', 'tcp')">TCP/SFTP Background Node</button>
+                <button class="btn btn-tcp" id="btnMonitor_{{ cam_id }}" onclick="window.open('/monitor/{{ cam_id }}', '_blank', 'width=900,height=700');" style="background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); margin-left: 0.5rem; display: none; padding: 0.5rem 1rem;">📡 Live Monitor</button>
+                <button class="btn btn-settings" onclick="openSettings('{{ cam_id }}')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
                     ⚙️ Config
                 </button>
-                <button class="btn btn-settings" onclick="openCalibration('cam0')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
+                <button class="btn btn-settings" onclick="openCalibration('{{ cam_id }}')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
                     🎯 Calibrate
                 </button>
-                <button class="btn btn-settings" onclick="previewPreprocess('cam0')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
+                <button class="btn btn-settings" onclick="previewPreprocess('{{ cam_id }}')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
                     👁️ Preview Pre-process
                 </button>
-                <button class="btn btn-settings" onclick="openBatchTest('cam0')" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4);">
+                <button class="btn btn-settings" onclick="openBatchTest('{{ cam_id }}')" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4);">
                     🧪 Batch Test
                 </button>
-                <button class="btn btn-settings" onclick="window.open('/debug/cam0', 'debugWindow_cam0', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
+                <button class="btn btn-settings" onclick="window.open('/debug/{{ cam_id }}', 'debugWindow_{{ cam_id }}', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
                     🐛 Debug Logs
                 </button>
             </div>
         </div>
+        {% endmacro %}
 
-        <!-- Camera 1 Panel -->
-        <div class="card">
-            <h2 id="cameraTitle_cam1" style="text-align: center; margin-bottom: 1rem;">Camera 1</h2>
-            <div class="status-banner" id="statusBanner_cam1">
-                <div class="status-indicator">
-                    <div class="dot" id="statusDot_cam1"></div>
-                    <span id="statusText_cam1">Loading...</span>
-                </div>
-                <div style="font-size: 0.9rem; color: var(--text-muted);" id="pidText_cam1"></div>
-            </div>
-
-            <div class="video-wrapper" id="videoWrapper_cam1">
-                <div class="placeholder-text" id="placeholderText_cam1">
-                    <span class="placeholder-icon">📷</span>
-                    <span>Camera is allocated to TCP Sender<br>Live Stream is paused on WebUI.</span>
-                </div>
-                <img id="videoFeed_cam1" class="video-feed" alt="Live Camera Stream">
-            </div>
-            <div style="text-align: right; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem;" id="resText_cam1">📸 Resolution: --x--</div>
-
-            <details class="camera-controls-accordion" id="cameraControls_cam1">
-                <summary>📸 Camera Properties</summary>
-                <div class="controls-panel">
-                    <div class="slider-group">
-                        <label>Shutter Speed (us) <span id="shutterVal_cam1">10000</span></label>
-                        <input type="range" id="shutter_cam1" min="1000" max="60000" step="500" value="10000" oninput="updateCamControl('cam1', 'ExposureTime', this.value)">
-                    </div>
-                    <div class="slider-group">
-                        <label>ISO Gain <span id="isoVal_cam1">2.0</span></label>
-                        <input type="range" id="iso_cam1" min="1.0" max="16.0" step="0.1" value="2.0" oninput="updateCamControl('cam1', 'AnalogueGain', this.value)">
-                    </div>
-                    <div class="slider-group">
-                        <label>White Balance (K) <span id="wbVal_cam1">Auto</span></label>
-                        <input type="range" id="wb_cam1" min="2000" max="10000" step="100" value="5000" oninput="updateWbTemp('cam1', this.value)">
-                        <button class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; margin-top: 0.2rem; width: fit-content; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);" onclick="updateWbTemp('cam1', 'auto')">Auto WB</button>
-                    </div>
-                    <div class="slider-group">
-                        <label>Focus</label>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <select id="focusMode_cam1" onchange="updateFocusMode('cam1', this.value)" style="flex: 1;">
-                                <option value="2">Autofocus</option>
-                                <option value="0">Manual</option>
-                            </select>
-                            <button id="focusLockBtn_cam1" class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.75rem; background: rgba(255,165,0,0.2); border: 1px solid rgba(255,165,0,0.5); display: none;" onclick="toggleAfLock('cam1')">Lock AF</button>
-                            <input type="range" id="focusSlider_cam1" style="flex: 2; display: none;" min="0.0" max="10.0" step="0.1" value="0.0" oninput="updateCamControl('cam1', 'LensPosition', this.value)">
-                            <span id="focusVal_cam1" style="display: none; width: 30px; text-align: right;">0.0</span>
-                        </div>
-                    </div>
-                    <div class="slider-group">
-                        <label>WebUI Preview Compression</label>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="previewResize_cam1" onchange="updatePreviewResize('cam1', this.checked)">
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    <div id="saveStatus_cam1" style="color: var(--success-color); font-size: 0.8rem; text-align: right; margin-top: 0.5rem; min-height: 1.2rem;"></div>
-                </div>
-            </details>
-
-            <div class="controls">
-                <button class="btn btn-webui active" id="btnWebui_cam1" onclick="switchMode('cam1', 'webui')">WebUI Stream</button>
-                <button class="btn btn-tcp" id="btnTcp_cam1" onclick="switchMode('cam1', 'tcp')">TCP/SFTP Background Node</button>
-                <button class="btn btn-tcp" id="btnMonitor_cam1" onclick="window.open('/monitor/cam1', '_blank', 'width=900,height=700');" style="background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.4); margin-left: 0.5rem; display: none; padding: 0.5rem 1rem;">📡 Live Monitor</button>
-                <button class="btn btn-settings" onclick="openSettings('cam1')" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
-                    ⚙️ Config
-                </button>
-                <button class="btn btn-settings" onclick="openCalibration('cam1')" style="background: rgba(168, 85, 247, 0.2); border: 1px solid rgba(168, 85, 247, 0.4);">
-                    🎯 Calibrate
-                </button>
-                <button class="btn btn-settings" onclick="previewPreprocess('cam1')" style="background: rgba(234, 179, 8, 0.2); border: 1px solid rgba(234, 179, 8, 0.4);">
-                    👁️ Preview Pre-process
-                </button>
-                <button class="btn btn-settings" onclick="openBatchTest('cam1')" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4);">
-                    🧪 Batch Test
-                </button>
-                <button class="btn btn-settings" onclick="window.open('/debug/cam1', 'debugWindow_cam1', 'width=800,height=600')" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4);">
-                    🐛 Debug Logs
-                </button>
-            </div>
-        </div>
+        <!-- Render Cameras -->
+        {{ render_camera_card('cam0', 'Camera 0') }}
+        {{ render_camera_card('cam1', 'Camera 1') }}
 
     </div>
     
@@ -939,6 +863,9 @@
                 <button class="btn" style="background: rgba(255,255,255,0.1);" onclick="clearCalibration()">Clear All</button>
                 <button class="btn" style="background: rgba(220, 38, 38, 0.4);" onclick="undoCalibration()">Undo Last</button>
                 <div style="flex:1;"></div>
+                <button class="btn" id="downloadCalibBtn" onclick="downloadCalibBundle()" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); display: flex; align-items: center; gap: 0.4rem;">
+                    <span>📦</span> Download Calib Files
+                </button>
                 <button class="btn" style="background: rgba(255,255,255,0.1);" onclick="closeCalibration()">Cancel</button>
                 <button class="btn btn-tcp" id="saveCalibBtn" onclick="saveCalibration()">Save Calibration</button>
             </div>
@@ -1505,6 +1432,7 @@
         let isDrawing = false;
         let startX, startY;
         let currentRect = null;
+        let currentMousePos = null;
 
         async function openCalibration(cam_id) {
             calibCamId = cam_id;
@@ -1534,6 +1462,37 @@
             calibCamId = null;
             calibTargetImg.src = "";
             ctx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
+        }
+
+        async function downloadCalibBundle() {
+            if (!calibCamId) return;
+            const btn = document.getElementById('downloadCalibBtn');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '⏳ Packaging...';
+            btn.disabled = true;
+            try {
+                const response = await fetch(`/api/calibrate/download_bundle/${calibCamId}`);
+                if (!response.ok) {
+                    const err = await response.json();
+                    alert('Download failed: ' + (err.error || response.statusText));
+                    return;
+                }
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `calibration_${calibCamId}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                btn.innerHTML = '✅ Downloaded!';
+                setTimeout(() => { btn.innerHTML = originalHTML; btn.disabled = false; }, 2500);
+            } catch (e) {
+                alert('Download error: ' + e.message);
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+            }
         }
 
         function switchCalibTab(mode) {
@@ -1579,8 +1538,9 @@
             }
             
             try {
-                const endpoint = method === 'mqtt' ? `/api/calibrate/wait/${calibCamId}` : `/api/calibrate/capture/${calibCamId}`;
-                const response = await fetch(endpoint);
+                const timestamp = Date.now();
+                const endpoint = method === 'mqtt' ? `/api/calibrate/wait/${calibCamId}?t=${timestamp}` : `/api/calibrate/capture/${calibCamId}?t=${timestamp}`;
+                const response = await fetch(endpoint, { cache: 'no-store' });
                 if (!response.ok) {
                     const data = await response.json();
                     throw new Error(data.error || "Capture failed");
@@ -1786,6 +1746,27 @@
                 ctx.strokeRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height);
                 ctx.fillRect(currentRect.x, currentRect.y, currentRect.width, currentRect.height);
             }
+            
+            // Draw interactive mouse crosshair
+            if (currentMousePos) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                // Vertical line
+                ctx.moveTo(currentMousePos.x, 0);
+                ctx.lineTo(currentMousePos.x, calibCanvas.height);
+                // Horizontal line
+                ctx.moveTo(0, currentMousePos.y);
+                ctx.lineTo(calibCanvas.width, currentMousePos.y);
+                ctx.stroke();
+                ctx.setLineDash([]); // Reset line dash
+                
+                // Show X/Y coordinates near the mouse
+                ctx.fillStyle = 'rgba(255, 255, 255, 1)';
+                ctx.font = '14px Courier New';
+                ctx.fillText(`X:${Math.round(currentMousePos.x)} Y:${Math.round(currentMousePos.y)}`, currentMousePos.x + 10, currentMousePos.y - 10);
+            }
         }
 
         function getMousePos(evt) {
@@ -1832,12 +1813,13 @@
         });
 
         calibCanvas.addEventListener('mousemove', (e) => {
-            if (!isDrawing) return;
-            if (calibMode === 'align' && alignStep !== 'marks' && calibMode !== 'crop') return;
-            
             const pos = getMousePos(e);
-            currentRect.width = pos.x - startX;
-            currentRect.height = pos.y - startY;
+            currentMousePos = pos;
+            
+            if (isDrawing && (calibMode === 'crop' || (calibMode === 'align' && alignStep === 'marks'))) {
+                currentRect.width = pos.x - startX;
+                currentRect.height = pos.y - startY;
+            }
             redrawCanvas();
         });
 
@@ -1869,13 +1851,14 @@
             redrawCanvas();
             scheduleLivePreview();
         });
-        
+
         calibCanvas.addEventListener('mouseleave', () => {
+            currentMousePos = null;
             if (isDrawing) {
                 isDrawing = false;
                 currentRect = null;
-                redrawCanvas();
             }
+            redrawCanvas();
         });
 
         function clearCalibration() {
@@ -2121,7 +2104,8 @@
             document.querySelector('#loadingOverlay p').innerText = 'Processing frame through pipeline...';
             
             try {
-                const response = await fetch(`/api/preview_preprocess/${cam_id}`);
+                const timestamp = Date.now();
+                const response = await fetch(`/api/preview_preprocess/${cam_id}?t=${timestamp}`, { cache: 'no-store' });
                 const data = await response.json();
                 
                 loadingOverlay.classList.remove('active');

@@ -4,6 +4,7 @@ import threading
 import socket
 from src.constants import *
 import logging
+from filelock import FileLock
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -32,6 +33,7 @@ class ConfigManager:
     def _init(self, config_path):
         self.config_path = config_path
         self.file_lock = threading.RLock()
+        self.process_lock = FileLock(f"{config_path}.lock", timeout=5)
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
         self.config = self._load()
 
@@ -72,7 +74,7 @@ class ConfigManager:
 
     def _load(self):
         """Loads config from disk, or generates fallback if not found."""
-        with self.file_lock:
+        with self.file_lock, self.process_lock:
             if not os.path.exists(self.config_path):
                 logger.critical(f"{self.config_path} not found. Generating fallback configuration!")
                 config = self._get_fallback_config()
@@ -88,7 +90,7 @@ class ConfigManager:
 
     def _save(self, config_dict):
         """Saves a dictionary to disk."""
-        with self.file_lock:
+        with self.file_lock, self.process_lock:
             try:
                 with open(self.config_path, 'w') as f:
                     json.dump(config_dict, f, indent=4)

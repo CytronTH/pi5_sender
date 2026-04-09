@@ -29,6 +29,7 @@ except Exception as e:
     print(f"Warning: Failed to pre-initialize libcamera CameraManager: {e}")
 
 from flask import Flask, render_template, Response, jsonify, request, send_file
+from flask_basicauth import BasicAuth
 from picamera2 import Picamera2
 import psutil
 import datetime
@@ -38,6 +39,10 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
+app.config['BASIC_AUTH_USERNAME'] = 'admin'
+app.config['BASIC_AUTH_PASSWORD'] = 'wf2026'
+app.config['BASIC_AUTH_FORCE'] = True
+basic_auth = BasicAuth(app)
 
 # --- Global State ---
 # Base directory for config paths
@@ -156,7 +161,8 @@ def start_tcp_sender(cam_id):
             try:
                 cam_data["tcp_process"] = subprocess.Popen(
                     ['python3', 'main.py', '-c', cfg_path],
-                    cwd=base_dir
+                    cwd=base_dir,
+                    start_new_session=True
                 )
                 logger.info(f"TCP Sender ({cam_id}) started with PID {cam_data['tcp_process'].pid}")
                 return True
@@ -173,12 +179,14 @@ def stop_tcp_sender(cam_id):
         
     if cam_data["tcp_process"] is not None and cam_data["tcp_process"].poll() is None:
         try:
-            cam_data["tcp_process"].terminate()
+            import os
+            import signal
+            os.killpg(os.getpgid(cam_data["tcp_process"].pid), signal.SIGTERM)
             try:
                 cam_data["tcp_process"].wait(timeout=5)
             except subprocess.TimeoutExpired:
                 print(f"Warning: Process {cam_id} did not terminate gracefully, forcing kill.")
-                cam_data["tcp_process"].kill()
+                os.killpg(os.getpgid(cam_data["tcp_process"].pid), signal.SIGKILL)
         except Exception as e:
             print(f"Warning: Error while killing TCP Sender {cam_id}: {e}")
         finally:
@@ -284,7 +292,7 @@ def get_config(cam_id):
         else:
             return jsonify({"error": "Config file not found"}), 404
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/config/<cam_id>', methods=['POST'])
 def save_config(cam_id):
@@ -328,7 +336,7 @@ def save_config(cam_id):
         
     except Exception as e:
         print(f"ERROR saving config for {cam_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/config/<cam_id>/camera_controls', methods=['POST'])
 def update_camera_controls(cam_id):
@@ -371,7 +379,7 @@ def update_camera_controls(cam_id):
         
     except Exception as e:
         print(f"ERROR updating camera controls for {cam_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/calibrate/capture/<cam_id>', methods=['GET'])
 def calibrate_capture(cam_id):
@@ -394,7 +402,7 @@ def calibrate_capture(cam_id):
                 cv2.imwrite(save_path, frame)
                 return send_file(save_path, mimetype='image/jpeg')
             except Exception as e:
-                return jsonify({"error": str(e)}), 500
+                return jsonify({"error": "Internal Server Error (see logs)"}), 500
         else:
             # TCP Mode - trigger via MQTT
             try:
@@ -523,7 +531,7 @@ def calibrate_upload(cam_id):
         return send_file(save_path, mimetype='image/jpeg')
     except Exception as e:
         logger.error(f"Upload error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/calibrate/save_alignment/<cam_id>', methods=['POST'])
 def save_alignment(cam_id):
@@ -614,7 +622,7 @@ def save_alignment(cam_id):
         return jsonify({"status": "success", "message": "Alignment templates saved"})
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/calibrate/save_crop/<cam_id>', methods=['POST'])
 def save_crop(cam_id):
@@ -638,7 +646,7 @@ def save_crop(cam_id):
             
         return jsonify({"status": "success", "message": "Crop regions saved"})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/preview_preprocess/<cam_id>', methods=['GET'])
 def preview_preprocess(cam_id):
@@ -701,7 +709,7 @@ def preview_preprocess(cam_id):
     except Exception as e:
         import traceback
         logger.error(f"Pipeline preview error: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/api/batch_test/<cam_id>', methods=['POST'])
 def batch_test(cam_id):
@@ -780,7 +788,7 @@ def batch_test(cam_id):
                 
     except Exception as e:
         logger.error(f"Batch test error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
     finally:
         sender.disconnect()
         
@@ -887,7 +895,69 @@ def live_preview(cam_id):
     except Exception as e:
         import traceback
         logger.error(f"Live preview error: {e}\n{traceback.format_exc()}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
+
+@app.route('/api/calibrate/download_bundle/<cam_id>', methods=['GET'])
+def download_calibration_bundle(cam_id):
+    """
+    Bundle all calibration files for a camera into a ZIP and serve for download.
+
+    Includes:
+      - configs/{cam_id}_calibration_points.json
+      - configs/{cam_id}_crop_regions.json  (if exists)
+      - configs/templates/{cam_id}_mark*.jpg
+    """
+    import zipfile
+    import io
+
+    if cam_id not in CAMERAS:
+        return jsonify({"error": "Invalid camera ID"}), 400
+
+    configs_dir = os.path.join(base_dir, "configs")
+    templates_dir = os.path.join(configs_dir, "templates")
+
+    # Collect files to bundle
+    files_to_bundle = []
+
+    # 1. Calibration points (required)
+    calib_path = os.path.join(configs_dir, f"{cam_id}_calibration_points.json")
+    if not os.path.exists(calib_path):
+        return jsonify({"error": f"Calibration file not found: {cam_id}_calibration_points.json. Please calibrate first."}), 404
+    files_to_bundle.append((calib_path, f"configs/{cam_id}_calibration_points.json"))
+
+    # 2. Crop regions (optional)
+    crop_path = os.path.join(configs_dir, f"{cam_id}_crop_regions.json")
+    if os.path.exists(crop_path):
+        files_to_bundle.append((crop_path, f"configs/{cam_id}_crop_regions.json"))
+
+    # 3. Template images for this camera
+    if os.path.exists(templates_dir):
+        for fname in sorted(os.listdir(templates_dir)):
+            if fname.startswith(f"{cam_id}_mark") and fname.lower().endswith((".jpg", ".jpeg", ".png")):
+                fpath = os.path.join(templates_dir, fname)
+                files_to_bundle.append((fpath, f"configs/templates/{fname}"))
+
+    if len(files_to_bundle) == 0:
+        return jsonify({"error": "No calibration files found to bundle."}), 404
+
+    # Build ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for abs_path, arc_name in files_to_bundle:
+            zf.write(abs_path, arc_name)
+
+    zip_buffer.seek(0)
+    zip_filename = f"calibration_{cam_id}.zip"
+    logger.info(f"Serving calibration bundle for {cam_id}: {len(files_to_bundle)} files → {zip_filename}")
+
+    return Response(
+        zip_buffer.getvalue(),
+        mimetype='application/zip',
+        headers={
+            'Content-Disposition': f'attachment; filename={zip_filename}',
+            'Content-Length': str(zip_buffer.getbuffer().nbytes)
+        }
+    )
 
 @app.route('/api/tcp_monitor/<cam_id>', methods=['GET'])
 def tcp_monitor(cam_id):
@@ -913,7 +983,7 @@ def tcp_monitor(cam_id):
         return jsonify({"status": "success", "data": monitor_data})
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 
 # --- Routes ---
@@ -1032,7 +1102,7 @@ def api_logs(cam_id):
             "logs": filtered_logs
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Internal Server Error (see logs)"}), 500
 
 @app.route('/status')
 def status():

@@ -1,12 +1,12 @@
 {
     "calibration_marks": [
         {
-            "x": 578,
-            "y": 348,
-            "width": 814,
-            "height": 832,
-            "center_x": 985.0,
-            "center_y": 764.0,
+            "x": 835,
+            "y": 234,
+            "width": 958,
+            "height": 962,
+            "center_x": 1314.0,
+            "center_y": 715.0,
             "template": "cam0_mark0.jpg"
         }
     ],

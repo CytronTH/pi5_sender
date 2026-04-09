@@ -1,39 +1,39 @@
 {
     "calibration_marks": [
         {
-            "x": 1082,
-            "y": 296,
-            "width": 219,
-            "height": 201,
-            "center_x": 1191.5,
-            "center_y": 396.5,
+            "x": 1137,
+            "y": 288,
+            "width": 214,
+            "height": 188,
+            "center_x": 1244.0,
+            "center_y": 382.0,
             "template": "cam1_mark0.jpg"
         },
         {
-            "x": 1382,
-            "y": 304,
-            "width": 352,
-            "height": 138,
-            "center_x": 1558.0,
-            "center_y": 373.0,
+            "x": 1426,
+            "y": 299,
+            "width": 357,
+            "height": 123,
+            "center_x": 1604.5,
+            "center_y": 360.5,
             "template": "cam1_mark1.jpg"
         }
     ],
     "calibration_corners": [
         {
-            "x": 824,
-            "y": 273
+            "x": 878,
+            "y": 257
         },
         {
-            "x": 1974,
-            "y": 189
+            "x": 1990,
+            "y": 194
         },
         {
-            "x": 2031,
-            "y": 755
+            "x": 2094,
+            "y": 740
         },
         {
-            "x": 845,
+            "x": 899,
             "y": 818
         }
     ]

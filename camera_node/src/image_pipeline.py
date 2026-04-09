@@ -74,7 +74,7 @@ class ImagePipeline:
             fallback_to_raw = True
         
         # Create output list holding (id, image_array) tuples
-        output_images = []
+        output_images = [("raw", frame)]
         
         if fallback_to_raw:
             output_images.append(("raw_image", frame))
@@ -92,13 +92,13 @@ class ImagePipeline:
             img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             found_marks = []
             
-            debug_img = frame.copy() if debug else None
+            debug_img = frame.copy()
             
             tmpl1 = cv2.cvtColor(self.preproc_templates[0], cv2.COLOR_BGR2GRAY)
             loc, score = find_mark(img_gray, tmpl1)
             
             if score < 0.2:
-                if debug_img is not None:
+                if debug:
                     save_path = os.path.join(self.base_dir, "logs", f"debug_align_fail_m1_{int(time.time()*100)}.jpg")
                     cv2.imwrite(save_path, debug_img)
                 raise ValueError("Mark 1 not found. Alignment failed.")
@@ -107,10 +107,9 @@ class ImagePipeline:
             m1_cx, m1_cy = loc[0] + tw//2, loc[1] + th//2
             found_marks.append([m1_cx, m1_cy])
             
-            if debug_img is not None:
-                cv2.rectangle(debug_img, loc, (loc[0] + tw, loc[1] + th), (0, 255, 0), 2)
-                cv2.circle(debug_img, (int(m1_cx), int(m1_cy)), 5, (0, 0, 255), -1)
-                cv2.putText(debug_img, "M1", (loc[0], loc[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            cv2.rectangle(debug_img, loc, (loc[0] + tw, loc[1] + th), (0, 255, 0), 2)
+            cv2.circle(debug_img, (int(m1_cx), int(m1_cy)), 5, (0, 0, 255), -1)
+            cv2.putText(debug_img, "M1", (loc[0], loc[1]-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
             
             is_single_mark = len(self.preproc_templates) == 1 if self.preproc_templates else False
             
@@ -122,17 +121,31 @@ class ImagePipeline:
                 start_x = int(m1_cx - (mark_w / 2))
                 start_y = int(m1_cy - (mark_h / 2))
                 
+                end_x = start_x + int(mark_w)
+                end_y = start_y + int(mark_h)
+                
                 h_img, w_img = frame.shape[:2]
-                start_x = max(0, start_x)
-                start_y = max(0, start_y)
-                end_x = min(w_img, start_x + mark_w)
-                end_y = min(h_img, start_y + mark_h)
                 
-                aligned_img = frame[start_y:end_y, start_x:end_x]
-                self.output_size = (end_x - start_x, end_y - start_y)
+                # Calculate visible region in source image
+                src_x1 = max(0, start_x)
+                src_y1 = max(0, start_y)
+                src_x2 = min(w_img, end_x)
+                src_y2 = min(h_img, end_y)
                 
-                if debug_img is not None:
-                    cv2.rectangle(debug_img, (start_x, start_y), (end_x, end_y), (0, 255, 255), 3)
+                # Calculate placement in destination (padded) canvas
+                dst_x1 = src_x1 - start_x
+                dst_y1 = src_y1 - start_y
+                dst_x2 = dst_x1 + (src_x2 - src_x1)
+                dst_y2 = dst_y1 + (src_y2 - src_y1)
+                
+                aligned_img = np.zeros((int(mark_h), int(mark_w), 3), dtype=np.uint8)
+                if src_x2 > src_x1 and src_y2 > src_y1:
+                    aligned_img[dst_y1:dst_y2, dst_x1:dst_x2] = frame[src_y1:src_y2, src_x1:src_x2]
+                    
+                self.output_size = (int(mark_w), int(mark_h))
+                
+                cv2.rectangle(debug_img, (start_x, start_y), (end_x, end_y), (0, 255, 255), 3)
+                if debug:
                     base_name = mock_name if mock_name else f"{int(time.time()*100)}"
                     save_path = os.path.join(self.base_dir, "logs", f"debug_align_success_{base_name}.jpg")
                     cv2.imwrite(save_path, debug_img)
@@ -155,14 +168,13 @@ class ImagePipeline:
                     roi_x, roi_y = int(exp_cx - w_box/2), int(exp_cy - h_box/2)
                     roi_rect = (roi_x, roi_y, w_box, h_box)
                     
-                    if debug_img is not None:
-                        cv2.rectangle(debug_img, (roi_x, roi_y), (roi_x + w_box, roi_y + h_box), (255, 0, 0), 2)
-                        cv2.putText(debug_img, f"ROI M{i+1}", (roi_x, roi_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    cv2.rectangle(debug_img, (roi_x, roi_y), (roi_x + w_box, roi_y + h_box), (255, 0, 0), 2)
+                    cv2.putText(debug_img, f"ROI M{i+1}", (roi_x, roi_y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
     
                     loc_i, score_i = find_mark(img_gray, tmpl, roi_rect)
                     
                     if score_i < 0.4:
-                        if debug_img is not None:
+                        if debug:
                             save_path = os.path.join(self.base_dir, "logs", f"debug_align_fail_m{i+1}_{int(time.time()*100)}.jpg")
                             cv2.imwrite(save_path, debug_img)
                         raise ValueError(f"Mark {i+1} not found. Alignment failed.")
@@ -171,12 +183,11 @@ class ImagePipeline:
                     found_cy = loc_i[1] + th_i//2
                     found_marks.append([found_cx, found_cy])
                     
-                    if debug_img is not None:
-                        cv2.rectangle(debug_img, loc_i, (loc_i[0] + tw_i, loc_i[1] + th_i), (0, 255, 0), 2)
-                        cv2.circle(debug_img, (int(found_cx), int(found_cy)), 5, (0, 0, 255), -1)
-                        cv2.putText(debug_img, f"M{i+1}", (loc_i[0], loc_i[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                    cv2.rectangle(debug_img, loc_i, (loc_i[0] + tw_i, loc_i[1] + th_i), (0, 255, 0), 2)
+                    cv2.circle(debug_img, (int(found_cx), int(found_cy)), 5, (0, 0, 255), -1)
+                    cv2.putText(debug_img, f"M{i+1}", (loc_i[0], loc_i[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
                         
-                if debug_img is not None:
+                if debug:
                     base_name = mock_name if mock_name else f"{int(time.time()*100)}"
                     save_path = os.path.join(self.base_dir, "logs", f"debug_align_success_{base_name}.jpg")
                     cv2.imwrite(save_path, debug_img)
@@ -289,5 +300,8 @@ class ImagePipeline:
         if enable_pre_crop:
             output_images.append(("pre_crop", final_surface))
         output_images.extend(cropped_sub_images)
+        
+        if enable_align:
+            output_images.append(("debug_align", debug_img))
         
         return output_images

@@ -2,3 +2,5 @@ opencv-python-headless
 paho-mqtt
 numpy
 paramiko
+Flask-BasicAuth
+filelock

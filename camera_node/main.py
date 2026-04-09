@@ -231,7 +231,8 @@ def pre_process_worker():
             monitor_images = []
             for img_id, img_data in images_to_send:
                 h_img, w_img = img_data.shape[:2]
-                tcp_sender.send_image(img_data, image_id=img_id, jpeg_quality=JPEG_QUALITY, width=w_img, height=h_img)
+                if img_id != "debug_align":
+                    tcp_sender.send_image(img_data, image_id=img_id, jpeg_quality=JPEG_QUALITY, width=w_img, height=h_img)
                 
                 # Encode for WebUI Monitor (lightweight)
                 try:

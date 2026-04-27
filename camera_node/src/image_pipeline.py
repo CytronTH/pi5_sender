@@ -74,10 +74,27 @@ class ImagePipeline:
             fallback_to_raw = True
         
         # Create output list holding (id, image_array) tuples
-        output_images = [("raw", frame)]
+        enable_timestamp_on_raw = prep_config.get("enable_timestamp_on_raw", False)
+        
+        def finalize_output(images):
+            if enable_timestamp_on_raw:
+                timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                for i in range(len(images)):
+                    img_id, img_data = images[i]
+                    if img_id not in ["debug_align", "inference_ready"]:
+                        stamped = img_data.copy()
+                        h_img = stamped.shape[0]
+                        font_scale = max(0.5, h_img / 1000.0)
+                        thickness = max(1, int(font_scale * 2))
+                        y_pos = max(20, int(30 * font_scale))
+                        cv2.putText(stamped, timestamp_str, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness)
+                        images[i] = (img_id, stamped)
+            return images
+
+        output_images = [("reference_raw", frame)]
         
         if fallback_to_raw:
-            output_images.append(("raw_image", frame))
+            output_images.append(("inference_ready", frame))
             
             # Save local copy for calibration if we are falling back
             calib_out_dir = os.path.join(self.base_dir, "logs")
@@ -85,7 +102,7 @@ class ImagePipeline:
             save_path = os.path.join(calib_out_dir, f"cam{self.camera_id}_calibration_target.jpg")
             cv2.imwrite(save_path, frame)
             
-            return output_images
+            return finalize_output(output_images)
 
         # --- 1. Alignment & Cropping ---
         if enable_align:
@@ -296,7 +313,7 @@ class ImagePipeline:
             for crop_id, crop in cropped_sub_images:
                 cv2.imwrite(os.path.join(debug_out_dir, f"preproc_{base_name}_{crop_id}.jpg"), crop)
         
-        output_images.append(("raw_image", masked_surface))
+        output_images.append(("inference_ready", masked_surface))
         if enable_pre_crop:
             output_images.append(("pre_crop", final_surface))
         output_images.extend(cropped_sub_images)
@@ -304,4 +321,4 @@ class ImagePipeline:
         if enable_align:
             output_images.append(("debug_align", debug_img))
         
-        return output_images
+        return finalize_output(output_images)

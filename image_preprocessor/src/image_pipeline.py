@@ -151,8 +151,8 @@ class ImagePipeline:
             List of (image_id: str, image_data: numpy array) tuples.
 
             Possible IDs:
-              "raw"          - Original input frame (always included)
-              "raw_image"    - Final processed surface (always in normal mode)
+              "reference_raw"  - Original input frame (always included)
+              "inference_ready"- Final processed surface (always in normal mode)
               "pre_crop"     - Post-CLAHE image before masking (if enable_pre_crop)
               "crop_X"       - Individual cropped regions from mask config
               "debug_align"  - Alignment debug overlay (only if debug=True)
@@ -199,18 +199,35 @@ class ImagePipeline:
                 frame = cv2.resize(frame, (ref_w, ref_h), interpolation=cv2.INTER_AREA)
 
         # Always include the raw source frame first (after potential resize to match output domain)
-        output_images = [("raw", frame)]
+        enable_timestamp_on_raw = prep_config.get("enable_timestamp_on_raw", False)
+
+        def finalize_output(images):
+            if enable_timestamp_on_raw:
+                timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                for i in range(len(images)):
+                    img_id, img_data = images[i]
+                    if img_id not in ["debug_align", "inference_ready"]:
+                        stamped = img_data.copy()
+                        h_img = stamped.shape[0]
+                        font_scale = max(0.5, h_img / 1000.0)
+                        thickness = max(1, int(font_scale * 2))
+                        y_pos = max(20, int(30 * font_scale))
+                        cv2.putText(stamped, timestamp_str, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness)
+                        images[i] = (img_id, stamped)
+            return images
+
+        output_images = [("reference_raw", frame)]
 
         # --- Fallback: No calibration data, return raw ---
         if fallback_to_raw:
-            output_images.append(("raw_image", frame))
+            output_images.append(("inference_ready", frame))
             calib_out_dir = os.path.join(self.base_dir, "logs")
             os.makedirs(calib_out_dir, exist_ok=True)
             save_path = os.path.join(
                 calib_out_dir, f"cam{self.camera_id}_calibration_target.jpg"
             )
             cv2.imwrite(save_path, frame)
-            return output_images
+            return finalize_output(output_images)
 
         # -------------------------------------------------------
         # Step 1: Alignment
@@ -493,7 +510,7 @@ class ImagePipeline:
         # -------------------------------------------------------
         # Assemble final output list
         # -------------------------------------------------------
-        output_images.append(("raw_image", masked_surface))
+        output_images.append(("inference_ready", masked_surface))
         if enable_pre_crop:
             output_images.append(("pre_crop", final_surface))
         output_images.extend(cropped_sub_images)
@@ -502,4 +519,4 @@ class ImagePipeline:
             # debug_align is included for inspection but NOT sent over TCP in the original
             output_images.append(("debug_align", debug_img))
 
-        return output_images
+        return finalize_output(output_images)

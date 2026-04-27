@@ -56,7 +56,7 @@ class TCPSender:
                 pass
             self.tcp_socket = None
 
-    def send_image(self, frame, image_id="raw_image", jpeg_quality=90, width=0, height=0):
+    def send_image(self, frame, image_id="raw_image", jpeg_quality=90, width=0, height=0, extra_meta=None):
         """Encodes frame and sends it over TCP with metadata header."""
         if self.tcp_socket is None:
             if not self.connect():
@@ -77,6 +77,8 @@ class TCPSender:
                 "id": image_id,
                 "size": img_size
             }
+            if extra_meta:
+                metadata.update(extra_meta)
             metadata_json = json.dumps(metadata).encode('utf-8')
             meta_size = len(metadata_json)
             

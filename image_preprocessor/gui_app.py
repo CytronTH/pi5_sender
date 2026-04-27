@@ -118,6 +118,7 @@ class App(tk.Tk):
         self._step_clahe   = tk.BooleanVar(value=True)
         self._step_crop    = tk.BooleanVar(value=True)
         self._step_precrop = tk.BooleanVar(value=False)
+        self._step_timestamp = tk.BooleanVar(value=False)
         self._skip_raw     = tk.BooleanVar(value=True)
         self._debug        = tk.BooleanVar(value=False)
 
@@ -216,6 +217,7 @@ class App(tk.Tk):
             ("CLAHE Enhancement",                 self._step_clahe),
             ("Mask-based Cropping (ROIs)",        self._step_crop),
             ("Pre-Crop (trim edges)",             self._step_precrop),
+            ("Add Timestamp on Raw Image",        self._step_timestamp),
         ]
 
         col_l = tk.Frame(steps_frame, bg=SURFACE2)
@@ -473,6 +475,7 @@ class App(tk.Tk):
                 "enable_clahe":          self._step_clahe.get(),
                 "enable_box_cropping":   self._step_crop.get(),
                 "enable_pre_crop":       self._step_precrop.get(),
+                "enable_timestamp_on_raw": self._step_timestamp.get(),
                 "pre_crop":              {"top": 0, "bottom": 0, "left": 0, "right": 0},
             }
             cam_id  = self._cam_id.get()
@@ -550,7 +553,7 @@ class App(tk.Tk):
                     for img_id, img_data in results:
                         if img_data is None or img_data.size == 0:
                             continue
-                        if skip_raw and img_id == "raw":
+                        if skip_raw and img_id == "reference_raw":
                             continue
                         if img_id == "debug_align" and not debug:
                             continue
@@ -561,7 +564,7 @@ class App(tk.Tk):
                         saved_count += 1
 
                     ids = [r[0] for r in results
-                           if r[0] not in ("raw",) or not skip_raw]
+                           if r[0] not in ("reference_raw",) or not skip_raw]
                     self._log_write(
                         f"[{i:>4}/{len(image_paths)}] ✓ {base_name}  "
                         f"({elapsed:.2f}s, {saved_count} file(s))", "ok")

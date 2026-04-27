@@ -203,36 +203,13 @@ def pre_process_worker():
         if os.path.exists(stale_monitor):
             os.remove(stale_monitor)
             logger.info(f"Cleared stale monitor data: {stale_monitor}")
-    except Exception as e:
-        print(f"CRITICAL ERROR during pipeline initialization: {e}")
-        sys.exit(1)
-        
-    while True:
-        try:
-            frame = image_queue.get()
-            prep_config = config.get("preprocessing", {})
-            disable_clahe = args.disable_clahe
             
-            # Use mock name for debug writes if available
-            m_name = last_mock_image_name if args.mock_dir else None
-            
-            # Process the frame through the encapsulated pipeline
-            images_to_send = pipeline.process_frame(
-                frame=frame,
-                prep_config=prep_config,
-                debug=args.debug_align,
-                mock_name=m_name,
-                disable_clahe=disable_clahe
-            )
-            
-            # Send the images sequentially
-            logger.info(f"Pre-processing complete. {len(images_to_send)} images prepared for sending.")
-            
+        def do_send(images_to_send, extra_meta=None):
             monitor_images = []
             for img_id, img_data in images_to_send:
                 h_img, w_img = img_data.shape[:2]
                 if img_id != "debug_align":
-                    tcp_sender.send_image(img_data, image_id=img_id, jpeg_quality=JPEG_QUALITY, width=w_img, height=h_img)
+                    tcp_sender.send_image(img_data, image_id=img_id, jpeg_quality=JPEG_QUALITY, width=w_img, height=h_img, extra_meta=extra_meta)
                 
                 # Encode for WebUI Monitor (lightweight)
                 try:
@@ -261,6 +238,33 @@ def pre_process_worker():
                     os.rename(tmp_path, final_path)
                 except Exception as ignore:
                     pass
+                    
+    except Exception as e:
+        print(f"CRITICAL ERROR during pipeline initialization: {e}")
+        sys.exit(1)
+        
+    while True:
+        try:
+            frame = image_queue.get()
+            prep_config = config.get("preprocessing", {})
+            disable_clahe = args.disable_clahe
+            
+            # Use mock name for debug writes if available
+            m_name = last_mock_image_name if args.mock_dir else None
+            
+            # Process the frame through the encapsulated pipeline
+            images_to_send = pipeline.process_frame(
+                frame=frame,
+                prep_config=prep_config,
+                debug=args.debug_align,
+                mock_name=m_name,
+                disable_clahe=disable_clahe
+            )
+            
+            # Send the images sequentially
+            logger.info(f"Pre-processing complete. {len(images_to_send)} images prepared for sending.")
+            
+            do_send(images_to_send)
                 
             image_queue.task_done()
             
@@ -268,10 +272,29 @@ def pre_process_worker():
             if args.mock_dir:
                 img_name = last_mock_image_name if last_mock_image_name else "Unknown"
                 print(f"⚠️ MOCK WARNING: Skipping image '{img_name}': {e}")
-                image_queue.task_done()
             else:
                 print(f"⚠️ ALIGNMENT WARNING: Pre-processing skipped this frame: {e}")
-                image_queue.task_done()
+                
+            # Send reference_raw even when failed
+            try:
+                out_frame = frame.copy()
+                if prep_config.get("enable_timestamp_on_raw", False):
+                    import time
+                    timestamp_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                    font_scale = max(0.5, out_frame.shape[0] / 1000.0)
+                    thickness = max(1, int(font_scale * 2))
+                    y_pos = max(20, int(30 * font_scale))
+                    cv2.putText(out_frame, timestamp_str, (10, y_pos), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), thickness)
+                
+                error_meta = {
+                    "status": "error",
+                    "error_msg": str(e)
+                }
+                do_send([("reference_raw", out_frame)], extra_meta=error_meta)
+            except Exception as e_send:
+                logger.error(f"Failed to send reference_raw: {e_send}")
+                
+            image_queue.task_done()
         except Exception as e:
             print(f"CRITICAL ERROR: Unexpected Pre-processing worker failure: {e}")
             sys.exit(1)

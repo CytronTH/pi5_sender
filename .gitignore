@@ -3,8 +3,9 @@ camera_node/logs/
 
 # Machine-specific configurations
 camera_node/configs/config*.json
-camera_node/configs/calibration_points.json
-camera_node/configs/crop_regions.json
+camera_node/configs/*calibration_points.json
+camera_node/configs/*crop_regions.json
+camera_node/configs/templates/
 
 # Python
 __pycache__/
